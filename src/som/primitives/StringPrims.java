@@ -10,8 +10,10 @@ import som.interpreter.nodes.nary.BinaryComplexOperation;
 import som.interpreter.nodes.nary.BinaryExpressionNode;
 import som.interpreter.nodes.nary.TernaryExpressionNode;
 import som.interpreter.nodes.nary.UnaryBasicOperation;
+import som.interpreter.nodes.nary.UnaryExpressionNode;
 import som.vm.Symbols;
 import som.vmobjects.SAbstractObject;
+import som.vmobjects.SArray;
 import som.vmobjects.SSymbol;
 import tools.dym.Tags.ComplexPrimitiveOperation;
 import tools.dym.Tags.StringAccess;
@@ -151,6 +153,43 @@ public class StringPrims {
         return "Error - index out of bounds";
       }
       return String.valueOf(receiver.charAt(i));
+    }
+  }
+
+  @GenerateNodeFactory
+  @Primitive(primitive = "stringFrom:")
+  public abstract static class StringFromPrim extends UnaryExpressionNode {
+
+    @Specialization
+    public final String doString(final SArray chars) {
+      Object[] storage = chars.getObjectStorage(chars.ObjectStorageType);
+      StringBuilder sb = new StringBuilder(storage.length);
+      for (Object o : storage) {
+        sb.append((String) o);
+      }
+
+      return sb.toString();
+    }
+  }
+
+  @GenerateNodeFactory
+  @Primitive(primitive = "charFrom:")
+  public abstract static class CharFromPrim extends UnaryExpressionNode {
+
+    @Specialization
+    public final String doString(final long val) {
+      return new String(new char[] {(char) val});
+    }
+  }
+
+  @GenerateNodeFactory
+  @Primitive(primitive = "charValue:")
+  public abstract static class CharValuePrim extends UnaryExpressionNode {
+
+    @Specialization
+    public final long doString(final String c) {
+      assert c != null && c.length() == 1;
+      return c.charAt(0);
     }
   }
 }
