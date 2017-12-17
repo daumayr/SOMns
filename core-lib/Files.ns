@@ -31,6 +31,12 @@ DAMAGE.>> *)
 | private vmMirror  = vmMirror.
   private Vector    = kernel Vector.
   private Exception = kernel Exception.
+  (* Streams *)
+  private ExternalOutputStream = platform streams ExternalOutputStream.
+  private ExternalReadStream = platform streams ExternalReadStream.
+  private ExternalReadWriteStream = platform streams ExternalReadWriteStream.
+  private CharacterReadConverter = platform streams CharacterReadConverter.
+  private CharacterInputOutputConverter = platform streams CharacterInputOutputConverter.
 |
   vmMirror fileDescriptorClass: FileDescriptor.
   vmMirror fileObject:  self.
@@ -357,6 +363,12 @@ DAMAGE.>> *)
     public pattern: p <String> = (
       pattern_0:: p
     )
+
+    (*stream stuff*)
+    public printOn: strm <CharOutputStream> = (
+      super printOn: strm.
+      strm nextPut: "("; print: self pattern; nextPut: ")".
+    )
   ) : (
     public for: pat <String>  ^<FilePattern> = (
       ^self new pattern: pat
@@ -547,6 +559,47 @@ DAMAGE.>> *)
 
     public simpleName ^ <String> = (
       ^ elements last name
+    )
+
+    (*stream stuff*)
+    charInputStream ^ <CharInputStream> = (
+	    ^super charInputStream
+      (* Override to use a ReadConverter, which is faster for things like upTo: *)
+      (* ^CharacterReadConverter on: self readStream *)
+    )
+
+    charInputStreamDo: blk <[:CharInputStream | X def]>  ifFail: fail <[Y def]>  ^ <X | Y> = (
+      (* %kludge: this is a quick hack that catches only some kinds of
+        problems *)
+      ^self exists
+        ifFalse: [ fail value ]
+        ifTrue: [ super charInputStreamDo: blk ]
+    )
+
+    charOutputStream ^ <CharOutputStream> = (
+      ^CharacterInputOutputConverter on: self writeStream
+    )
+
+    public inputStream ^ <InputStream[Integer]> = (
+      (* We are using this for now since read streams are faster at things like upTo: than input streams *)
+      ^self readStream
+    )
+
+    public outputStream ^ <OutputStream[Integer]> = (
+      ^ExternalOutputStream onDescriptor: (self open: #write ifFail: [ :err <ExternalError> | self error: err ])
+    )
+
+    public readStream ^ <ExternalReadStream> = (
+      ^ExternalReadStream onDescriptor:
+      (self open: #read ifFail: [ :err <ExternalError> | self error: err ])
+    )
+
+    public readWriteStream ^ <ExternalReadWriteStream> = (
+      ^ExternalReadWriteStream onDescriptor: (self open: #readwrite ifFail: [ :err <ExternalError> | self error: err ])
+    )
+
+    public writeStream ^ <ExternalReadWriteStream> = (
+      ^ExternalReadWriteStream onDescriptor: (self open: #write ifFail: [ :err <ExternalError> | self error: err ])
     )
   ) : (
     public currentDirectory ^<FilePath> = (
