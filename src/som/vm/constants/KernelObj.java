@@ -31,6 +31,18 @@ public final class KernelObj {
     return disp.invoke(new Object[] {KernelObj.kernel, receiver});
   }
 
+  public static Object signalException(final String selector, final Object arg1,
+      final Object arg2) {
+    CompilerDirectives.transferToInterpreter();
+    VM.thisMethodNeedsToBeOptimized("Should be optimized or on slowpath");
+
+    // the value object was not constructed properly.
+    SInvokable disp = (SInvokable) KernelObj.kernel.getSOMClass().lookupPrivate(
+        Symbols.symbolFor(selector),
+        KernelObj.kernel.getSOMClass().getMixinDefinition().getMixinId());
+    return disp.invoke(new Object[] {KernelObj.kernel, arg1, arg2});
+  }
+
   @GenerateNodeFactory
   @Primitive(primitive = "kernelIndexOutOfBounds:")
   public abstract static class SetIndexOutOfBounds extends UnaryExpressionNode {

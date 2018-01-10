@@ -20,6 +20,7 @@ import som.interpreter.nodes.nary.QuaternaryExpressionNode;
 import som.interpreter.nodes.nary.TernaryExpressionNode;
 import som.interpreter.nodes.nary.UnaryExpressionNode;
 import som.vm.VmSettings;
+import som.vm.constants.KernelObj;
 import som.vmobjects.SBlock;
 import som.vmobjects.SInvokable;
 import tools.dym.Tags.OpClosureApplication;
@@ -67,7 +68,9 @@ public abstract class BlockPrims {
       return receiver;
     }
 
-    @Specialization(guards = "cached == receiver.getMethod()", limit = "CHAIN_LENGTH")
+    @Specialization(
+        guards = {"cached == receiver.getMethod()", "cached.getNumberOfArguments() == 1"},
+        limit = "CHAIN_LENGTH")
     public final Object doCachedBlock(final SBlock receiver,
         @Cached("createDirectCallNode(receiver, getSourceSection())") final DirectCallNode call,
         @Cached("receiver.getMethod()") final SInvokable cached) {
@@ -77,6 +80,11 @@ public abstract class BlockPrims {
     @Specialization(replaces = "doCachedBlock")
     public final Object doGeneric(final SBlock receiver,
         @Cached("create()") final IndirectCallNode call) {
+      if (receiver.getMethod().getNumberOfArguments() != 1) {
+        return KernelObj.signalException("signalBAMismatch:actual:",
+            (long) receiver.getMethod().getNumberOfArguments() - 1,
+            0l);
+      }
       return receiver.getMethod().invoke(call, new Object[] {receiver});
     }
   }
@@ -95,7 +103,9 @@ public abstract class BlockPrims {
       }
     }
 
-    @Specialization(guards = "cached == receiver.getMethod()", limit = "CHAIN_LENGTH")
+    @Specialization(
+        guards = {"cached == receiver.getMethod()", "cached.getNumberOfArguments() == 2"},
+        limit = "CHAIN_LENGTH")
     public final Object doCachedBlock(final SBlock receiver, final Object arg,
         @Cached("createDirectCallNode(receiver, getSourceSection())") final DirectCallNode call,
         @Cached("receiver.getMethod()") final SInvokable cached) {
@@ -105,6 +115,11 @@ public abstract class BlockPrims {
     @Specialization(replaces = "doCachedBlock")
     public final Object doGeneric(final SBlock receiver, final Object arg,
         @Cached("create()") final IndirectCallNode call) {
+      if (receiver.getMethod().getNumberOfArguments() != 2) {
+        return KernelObj.signalException("signalBAMismatch:actual:",
+            (long) receiver.getMethod().getNumberOfArguments() - 1,
+            1l);
+      }
       return receiver.getMethod().invoke(call, new Object[] {receiver, arg});
     }
   }
@@ -123,7 +138,9 @@ public abstract class BlockPrims {
       }
     }
 
-    @Specialization(guards = "cached == receiver.getMethod()", limit = "CHAIN_LENGTH")
+    @Specialization(
+        guards = {"cached == receiver.getMethod()", "cached.getNumberOfArguments() == 3"},
+        limit = "CHAIN_LENGTH")
     public final Object doCachedBlock(final SBlock receiver, final Object arg1,
         final Object arg2,
         @Cached("createDirectCallNode(receiver, getSourceSection())") final DirectCallNode call,
@@ -135,6 +152,12 @@ public abstract class BlockPrims {
     public final Object doGeneric(final SBlock receiver, final Object arg1,
         final Object arg2,
         @Cached("create()") final IndirectCallNode call) {
+      if (receiver.getMethod().getNumberOfArguments() != 3) {
+        return KernelObj.signalException("signalBAMismatch:actual:",
+            (long) receiver.getMethod().getNumberOfArguments() - 1,
+            2l);
+      }
+
       return receiver.getMethod().invoke(call, new Object[] {receiver, arg1, arg2});
     }
   }
