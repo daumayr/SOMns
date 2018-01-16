@@ -33,19 +33,10 @@ DAMAGE.>> *)
 	private String    = platform kernel String.
 	private Character = platform kernel Character.
 |) (
-	public class BasicInputStream = (
 	(* This class provides the standard implementation of the InputStream[E] protocol, where E is the type of the elements of the stream.  It implements all functionality
-	in terms of the two messages #actualNext and #actualAtEnd, which subclasses must provide.
-
-	Note that streams support all collection operations.  However, when using collection messages with
-	streams, the caller must be aware that iteration on a stream changes the state of the stream, so that
-	iterations are not repeatable.  Also, care must be taken with infinite streams, since most collection
-	messages will not terminate on their own for infinite streams.
-
-	%responsibility #newCollectionOfSize:
-			Optionally override
-	%responsibility #close
-			Close must be reimplemented if any work must be done when the stream is closed. *)| 
+	in terms of the two messages #actualNext and #actualAtEnd, which subclasses must provide.*)
+	public class BasicInputStream = (
+	| 
 	havePeeked_0 <Boolean> ::= false.	
 	(* If true, then peekVal is the next element *)
 	peekVal <E>
@@ -53,7 +44,7 @@ DAMAGE.>> *)
 		) (
 		accumulateUntil: predicate <[Boolean]>  ^ <Vector[E]> = (
 			| build <ReadWriteStream[E]> |
-			build:: self newBuildStream.
+			build:: BasicReadWriteStream on: (self newCollectionOfSize: 10).
 			[ predicate value ]
 				whileFalse: [	build nextPut: self next   ].
 			^build contentsWritten
@@ -87,10 +78,6 @@ DAMAGE.>> *)
 			^self accumulateUntil: [ self atEnd ]
 		)
 
-		defaultExpected ^ <Integer> = (
-			^10
-		)
-
 		do: f <[:E]>  = (
 			[ self atEnd ]
 				whileFalse: [ f value: self next ]
@@ -103,12 +90,6 @@ DAMAGE.>> *)
 		havePeeked: f <Boolean> = (
 			f ifFalse: [ peekVal:: nil ].
 			havePeeked_0:: f.
-		)
-
-		newBuildStream ^ <ReadWriteStream[E]> = (
-			(* Returns a readwrite stream to be used for accumulating elements
-			for the various contents messages, etc. *)
-			^BasicReadWriteStream(* [E] *) on: (self newCollectionOfSize: self defaultExpected)
 		)
 
 		newCollectionOfSize: n <Integer> ^ <Vector[E]> = (
@@ -126,7 +107,7 @@ DAMAGE.>> *)
 		)
 
 		public next: nElements <Integer>  ^ <Vector[E]> = (
-			| cltn <VarSeqCltn[E]> |
+			| cltn <Vector[E]> |
 
 			cltn:: self newCollectionOfSize: nElements.
 			1 to: nElements do: [ :i <Integer> |
@@ -147,12 +128,8 @@ DAMAGE.>> *)
 			^self havePeeked
 				ifTrue: [ self nextFromPeek ]
 				ifFalse: [ self actualAtEnd
-									ifFalse: [ self actualNext ]
-									ifTrue: [ f value ]	 ]
-		)
-
-		nextMatchFor: o <Object> ^ <Boolean> = (
-			^self next = o
+									ifTrue: [ f value ]
+									ifFalse: [ self actualNext ]]
 		)
 
 		noPeekVal = (
@@ -167,13 +144,6 @@ DAMAGE.>> *)
 			^self peekVal
 		)
 
-		peekFor: o <Object> ^ <Boolean> = (
-			^self peek = o
-				ifTrue: [	self next.
-						true	]
-				ifFalse: [	false ]
-		)
-
 		peekIfAbsent: f <[X def]>  ^ <E | X> = (
 			self havePeeked
 				ifFalse: [	self actualAtEnd
@@ -183,22 +153,18 @@ DAMAGE.>> *)
 			^self peekVal
 		)
 
-		public printOn: strm <CharOutputStream> = (
-			strm	nextPutAll: self class name
-		)
-
-		skip: nElements <Integer> = (
+		public skip: nElements <Integer> = (
 			nElements timesRepeat: [ self next ]
 		)
 
-		skipTo: o <Object> ^ <Boolean> = (
+		public skipTo: o <Object> ^ <Boolean> = (
 			[ self atEnd ] whileFalse: [ 
 					self next = o
 						ifTrue: [ ^true ]	].
 			^false
 		)
 
-		upTo: delimiter <Object> ^ <Vector[E]> = (
+		public upTo: delimiter <Object> ^ <Vector[E]> = (
 			| s <SeqCltn[E]> |
 			s:: self accumulateUntil: [ self atEndOrPeekIs: delimiter ].
 			self nextIfAbsent: [ ].
@@ -207,58 +173,16 @@ DAMAGE.>> *)
 	) : (
 	)
 
-	public class BasicOutputStream = (
-	(* This class provides the standard implementation of the OutputStream protocol.  It implements all functionality in terms of the message #nextPut:, which subclasses must provide.
-
-	%responsibility #flush
-			Subclasses may have to reimplement this to flush any internal buffers.
-
-	%todo: if this class doesn't end up with more methods than next:put: and nextPutAll:, then we
-	should remove it and copy those two methods into its subclasses and invocations.
-	*)) (
-		externalFlush = (
-			(* By default do regular flush.  Subclasses should extend to deal with any external buffers *)
-			self flush
-		)
-
-		public flush = (
-			(* Flush any information buffered in Smalltalk.  This does NOT
-			flush the external medium; use #externalFlush for that. *)
-			(* By default do nothing *)
-		)
-
-		public next: nElements <Integer> put: el <E> ^ <E> = (
-			nElements timesRepeat: [
-				self put: el		].
-			^el
-		)
-
-		public put: el <E> ^ <E> = (
-			self subclassResponsibility
-		)
-
-		public putAll: els <Vector[E]> ^ <Vector[Object]> = (
-			els do: [ :el <E> |
-				self put: el		].
-			^els
-		)
-
-		show: els <Vector[E]> ^ <Vector[Object]> = (
-			(* basically like for #nextPutAll, except that it should flush immediately. *)
-			self putAll: els; flush.
-			^els
-		)
-	) : (
-	)
-
-	class BasicReadStream = BasicInputStream (
 	(* This class provides the standard implementation of the ReadStream protocol. 
 
 	Subclass responsibilities:
 			%responsibility actualPosition:
 					Should be extended in subclasses to change any external position cursor, if necessary.
 			%responsibility actualNext
-					Subclasses must ensure that their implementation of next and nextFromPeek increments the position. *)| actualPosition_slot <Integer> ::= 0.  |) (
+					Subclasses must ensure that their implementation of next and nextFromPeek increments the position. *)
+	class BasicReadStream = BasicInputStream (
+		| actualPosition_slot <Integer> ::= 0.  |
+	) (
 		actualAtEnd ^ <Boolean> = (
 			^self actualPosition >= self size
 		)
@@ -268,7 +192,7 @@ DAMAGE.>> *)
 		)
 
 		actualPosition: p <Integer> = (
-			actualPosition_slot: p
+			actualPosition_slot:: p
 		)
 
 		at: index <Integer> ^ <E> = (
@@ -307,12 +231,11 @@ DAMAGE.>> *)
 			| pos <Integer> n <Integer> result <Array[EX]> offset <Integer> |
 			pos:: self position.
 			n:: (stop - start) + 1.
-			result:: Array(* [EX] *) new: n.
+			result:: Array new: n.
 			offset:: start - 1.
-			1 to: n do:
-				[ :i <Integer> |
-					(* guarantee is safe because of inference clause *)
-					result at: i put: ((* guaranteed <EX> *) (self repositioningAt: offset + i)). ].
+			1 to: n do:	[ :i <Integer> |
+				result at: i put: (self repositioningAt: offset + i) 
+			].
 			self position: pos.
 			^result
 		)
@@ -337,23 +260,19 @@ DAMAGE.>> *)
 			^self at: index
 		)
 
-		reset = (
-			self position: 0.
-		)
-
-		setToEnd = (
+		public setToEnd = (
 			self position: self size.
 		)
 
-		size ^ <Integer> = (
+		public size ^ <Integer> = (
 			self subclassResponsibility
 		)
 
-		skip: nElements <Integer> = (
+		public skip: nElements <Integer> = (
 			self position: (self position + nElements max: self size)
 		)
 
-		skipTo: o <Object> ^ <Boolean> = (
+		public skipTo: o <Object> ^ <Boolean> = (
 			| pos <Integer> n <Integer> sz <Integer> |
 			sz:: self size.
 			pos:: self position.
@@ -367,37 +286,25 @@ DAMAGE.>> *)
 			^false
 		)
 
-		upTo: delimiter <Object> ^ <SeqCltn[E]> = (
+		public upTo: delimiter <Object> ^ <Vector[E]> = (
 			| pos <Integer> n <Integer> result <Vector[E]> |
 			pos:: self position.
 			^(self skipTo: delimiter)
 				ifTrue: [ self copyFrom: pos + 1 to: self position - 1 ]
 				ifFalse: [ self copyFrom: pos + 1 to: self position ]
 		)
-	) : (
-		on: sc <Vector[E]> ^ <ReadStream[E]> = (
-			(* Create a new read stream on sc, assuming that all of its elements are readable.
-				This message is here for BlueBook compatibility.  For good style, use (sc readStream)
-				instead. *)
-
-			^SeqCltnReadStream(* [E] *) on: sc
-		)
-
-		on: sc <Vector[E]> from: firstIndex <Integer> to: lastIndex <Integer>  ^ <ReadStream[E]> = (
-			(* Create a new read stream on a copy of the elements in sc from firstIndex to lastIndex, inclusive *)
-			^self on: (sc copyFrom: firstIndex to: lastIndex)
-		)
 	)
 
-	class BasicReadWriteStream = BasicReadStream <: BasicOutputStream (
 	(* This class provides the standard implementation of the WriteStream and ReadWriteStream protocols.
 	%responsibility put:
 			Subclasses must extend the put: method to do the actual work of writing the element.
 	%responsibility size:
 			Optional - Any subclass that wishes to start off with readable elements in the stream must send
 			the message size: to indicate how many there are.
-	*)| size <Integer> ::= 0.  |) (
-
+	*)
+	class BasicReadWriteStream = BasicReadStream (
+		| size <Integer> ::= 0.  |
+	) (
 		public contentsWritten  ^ <Vector[E]> = (
 			| cltn <Vector[E]>  origPos <Integer> |
 			cltn:: self newCollectionOfSize: self position.
@@ -417,6 +324,27 @@ DAMAGE.>> *)
 				ifTrue: [ self size: pos ].
 			^el
 		)
+
+		externalFlush = (
+			(* By default do regular flush.  Subclasses should extend to deal with any external buffers *)
+			self flush
+		)
+
+		public flush = (
+			(* By default do nothing *)
+		)
+
+		public next: nElements <Integer> put: el <E> ^ <E> = (
+			nElements timesRepeat: [
+				self put: el		].
+			^el
+		)
+
+		public putAll: els <Vector[E]> ^ <Vector[Object]> = (
+			els do: [ :el <E> |
+				self put: el		].
+			^els
+		)
 	) : (
 		on: sc <Vector[E]>  ^ <ReadWriteStream[E]> = (
 			(* Create a new read write stream on a sequenceable collection, assuming that it contains no readable elements yet *)
@@ -429,50 +357,19 @@ DAMAGE.>> *)
 		)
 	)
 
-	class CharacterInput = BasicInputStream(
-	(* This mixin adds character specific messages to an InputStream class. *)) (
-		contentsRemaining ^ <String> = (
-			| con <Vector[Character]> |
-			con:: super contentsRemaining.
-
-			^con isString
-				ifTrue: [ con ]
-				ifFalse: [ String withAll: con ]
-		)
-
-		newCollectionOfSize: n <Integer> ^ <String> = (
-			^Array new: n
-		)
-
-		public next: nElements <Integer> ^ <String> = (
-			| con <Vector[Character]> |
-			con:: super next: nElements.
-			^ String from: con.
-		)
-
-		upTo: o <Object> ^ <String> = (
-			| con <Vector[Character]> |
-			con:: super upTo: o.
-			^con isString
-				ifTrue: [ con ]
-				ifFalse: [ String withAll: con ]
-		)
-	) : (
-	)
-
-	public class CharacterInputConverter = CharacterInput (
 	(* Instances are used to create a CharInputStream that wraps a byte input stream*)
-	| binaryStream <STRM> |) (
+	public class CharacterInputConverter = BasicInputStream (
+	| binaryStream <InputStream> |) (
 		actualAtEnd ^ <Boolean> = (
 			^self binaryStream atEnd
 		)
 
 		actualNext ^ <Character> = (
 				| c <Character> |
-			c:: Character fromValue: self binaryStream next.
-			(usingCrLfConvention and: [ c = (Character cr) ])
+			c:: Character from: self binaryStream next.
+			(usingCrLfConvention and: [ c = '\r' ])
 						ifTrue: [ self binaryStream atEnd
-								ifFalse: [ self binaryStream peek = (Character value: Character lf)
+								ifFalse: [ self binaryStream peek = (Character value: '\n')
 													ifTrue: [  self binaryStream next ]	]].
 			^c
 		)
@@ -485,21 +382,26 @@ DAMAGE.>> *)
 			^binaryStream size.
 		)
 
-		public initBinaryStream: binaryStrm <STRM> = (
+		public initBinaryStream: binaryStrm <InputStream> = (
 			self binaryStream: binaryStrm
 		)
 
-		upTo: del <Object> ^ <Str> = (
-			| bytes <Vector[Integer]> s <String> lfs <Integer> j <Integer> delimiter <Character> |
+		public upTo: del <Object> ^ <String> = (
+			| bytes <Vector[Integer]> s <String> lfs <Integer> j <Integer> delimiter <Character> con <Vector[Character]> |
 
 			(self havePeeked and: [ self peek == del ])
-				ifTrue: [ ^super upTo: del ].
+			ifTrue: [
+				con:: super upTo: del.
+				^con isString
+					ifTrue: [ con ]
+					ifFalse: [ String from: (con asArray) ]
+			].
 
-			delimiter:: Character coerce: del.
-			bytes:: self binaryStream upTo: delimiter asciiValue.
+			delimiter:: del.
+			bytes:: self binaryStream upTo: delimiter value.
 
 			usingCrLfConvention
-				ifTrue: [	delimiter == Character cr
+				ifTrue: [	delimiter = '\r'
 									ifTrue: [	(* If cr was the delim, got to check for reading the lf, since
 													it was at the lower level *)
 													(self binaryStream atEnd not and: [ self binaryStream peek == 10 ])
@@ -529,27 +431,46 @@ DAMAGE.>> *)
 						ifTrue: [ lfs:: lfs + 1 ]
 				].
 			self havePeeked
-				ifFalse: [	s:: String new: bytes size - lfs.
-								j:: 1.	  ]
 				ifTrue: [	s:: String new: (bytes size - lfs) + 1.
-								j:: 2.	  ].
+								j:: 2.	  ]
+				ifFalse: [	s:: String new: bytes size - lfs.
+								j:: 1.	  ].
 			bytes do:
 				[ :b <Integer> |
 					b == 10
-						ifFalse: [	s at: j putUnicode: b.
+						ifFalse: [	s at: j put: b.
 										j:: j + 1.	 ]
 				].
 			self havePeeked
 				ifTrue: [ s at: 1 put: self next ].
 			^s
 		)
+
+		contentsRemaining ^ <String> = (
+			| con <Vector[Character]> |
+			con:: super contentsRemaining.
+
+			^con isString
+				ifTrue: [ con ]
+				ifFalse: [ String from: (con asArray) ]
+		)
+
+		newCollectionOfSize: n <Integer> ^ <String> = (
+			^Array new: n
+		)
+
+		public next: nElements <Integer> ^ <String> = (
+			| con <Vector[Character]> |
+			con:: super next: nElements.
+			^ String from: con.
+		)
 	) : (
-		on: binaryStrm <STRM> ^ <Instance> = (
+		on: binaryStrm <InputStream> ^ <Instance> = (
 			^self new initBinaryStream: binaryStrm
 		)
 	)
 
-	public class CharacterInputOutputConverter =  CharacterInputConverter <: BasicOutputStream <: CharacterOutput() (
+	public class CharacterInputOutputConverter =  CharacterInputConverter <: CharacterOutput() (
 		externalFlush = (
 			self binaryStream externalFlush.
 		)
@@ -560,8 +481,8 @@ DAMAGE.>> *)
 
 		public put: c <Character> ^ <Character> = (
 			self binaryStream put: (Character value: c).
-			(usingCrLfConvention and: [ c = Character cr ])
-				ifTrue: [ self binaryStream put: (Character value: Character lf) ].
+			(usingCrLfConvention and: [ c = '\r' ])
+				ifTrue: [ self binaryStream put: (Character value: '\n') ].
 			^c
 		)
 
@@ -573,19 +494,27 @@ DAMAGE.>> *)
 			self binaryStream position: i.
 			self noPeekVal.
 		)
-		setToEnd = (
+
+		public setToEnd = (
 			self binaryStream setToEnd
 		)
+
+		public next: nElements <Integer> put: el <E> ^ <E> = (
+			nElements timesRepeat: [
+				self put: el		].
+			^el
+		)
 	) : (
-		public on: binaryStrm <STRM> ^ <Instance> = (
+		public on: binaryStrm <InputStream> ^ <Instance> = (
 			^self new initBinaryStream: binaryStrm
 		)
 	)
 
-	class CharacterOutput = (
-	(* This mixin adds character specific messages to an OutputStream class. *)) (
+
+	(* This mixin adds character specific messages to an OutputStream class. *)
+	class CharacterOutput = () (
 		public cr  = (
-			self put: Character cr
+			self put: '\r'
 		)
 
 		public crTab  = (
@@ -594,24 +523,26 @@ DAMAGE.>> *)
 
 		public crTab: count <Integer> = (
 			count timesRepeat:
-				[ self put: Character cr; put: Character tab	]
+				[ self put: '\r'; put: '\t'	]
 		)
 
-		public print: o <Object> = (
-			o printOn: self
+		public putAll: elements <String> = (
+			1 to: (elements length) do: [ :i |
+				self put: (elements charAt: i).
+			]
 		)
 
 		public space = (
-			self put: Character space
+			self put: ' '
 		)
 
 		public tab = (
-			self put: Character tab
+			self put: '\t'
 		)
 	) : (
 	)
 
-	class CharacterOutputConverter = BasicOutputStream <: CharacterOutput (
+	class CharacterOutputConverter = CharacterOutput (
 	(*  *)| binaryStream <OutputStream[Integer]> (* = bstream. *) |) (
 		public close = (
 			self binaryStream close.
@@ -630,10 +561,22 @@ DAMAGE.>> *)
 		)
 
 		public put: c <Character> ^ <Character> = (
-			self binaryStream put: c asciiValue.
-			(usingCrLfConvention and: [ c = Character cr ])
-				ifTrue: [ self binaryStream put: Character lf asciiValue ].
+			self binaryStream put: c value.
+			(usingCrLfConvention and: [ c = '\r' ])
+				ifTrue: [ self binaryStream put: '\n' value ].
 			^c
+		)
+
+		public next: nElements <Integer> put: el <E> ^ <E> = (
+			nElements timesRepeat: [
+				self put: el		].
+			^el
+		)
+
+		public putAll: els <Vector[E]> ^ <Vector[Object]> = (
+			els do: [ :el <E> |
+				self put: el		].
+			^els
 		)
 	) : (
 		public on: binaryStrm <OutputStream[Integer]> ^ <Instance> = (
@@ -641,21 +584,20 @@ DAMAGE.>> *)
 		)
 	)
 
-	public class CharacterReadConverter = CharacterInputConverter (
 	(* Like CharacterInputConverter, but takes a ReadStream[Integer] rather than an InputStream[Integer], so that it can do some operations like
 	upTo: faster.	*)
-	) (
-		numCharsUpToAscii: del <Integer> ^ <Integer> = (
+	public class CharacterReadConverter = CharacterInputConverter () (
+		public numCharsUpTo: del <Character> ^ <Integer> = (
 			(* Num chars from current pos to del, not counting lfs if they shouldn't be.  May leave the position changed. *)
 			| n <Integer> sz <Integer> |
 			n:: 0.
 			sz:: self binaryStream size.
 			self binaryStream position + 1 to: sz do:
 				[ :i <Integer> |
-					| asc <Integer> |
-					asc:: self binaryStream repositioningAt: i.
-					(usingCrLfConvention and: [ asc == 10 ]) (* lf *)
-						ifFalse: [	asc == del
+					| c <Integer> |
+					c:: self binaryStream repositioningAt: i.
+					(usingCrLfConvention and: [ c == 10 ]) (* lf *)
+						ifFalse: [	c == del
 											ifTrue: [ ^n ]
 											ifFalse: [	n:: n + 1 ]
 									]
@@ -663,31 +605,32 @@ DAMAGE.>> *)
 			^n
 		)
 
-		upTo: del <Object> ^ <String> = (
+		public upTo: del <Character> ^ <String> = (
 			| sz <Integer> s <String> lfs <Integer> offset <Integer> delimiter <Integer> pos <Integer> bsize <Integer> i <Integer> |
 
 			(self havePeeked and: [ self peek == del ])
 				ifTrue: [ ^super upTo: del ].
 
-			delimiter:: (Character coerce: del) asciiValue.
+			delimiter:: del value.
 			pos:: self binaryStream position.
 
 			(* Scan for the delimiter in the binary stream *)
-			sz:: self numCharsUpToAscii: delimiter.
+			sz:: self numCharsUpTo: delimiter.
 
-			self havePeeked
-				ifFalse: [	s:: String new: sz.
-								offset:: 0. ]
-				ifTrue: [	s:: String new: sz + 1.
-								s at: 1 put: self next.
-								offset:: 1. ].
+			self havePeeked ifTrue: [	
+				s:: String new: sz + 1.
+				s at: 1 put: self next.
+				offset:: 1. 
+			] ifFalse: [	s:: String new: sz.
+				offset:: 0. 
+			].
 
 			pos:: pos + 1.
 			i:: 1.
 			[ i <= sz ]
 				whileTrue: [	| code <Integer> |
 									code:: self binaryStream repositioningAt: pos.
-									s at: i + offset putUnicode: code.
+									s at: i + offset put: code.
 									i:: i + 1.
 									(code == 13 and: [usingCrLfConvention])
 										ifTrue: [	pos:: pos + 1. ].
@@ -700,7 +643,7 @@ DAMAGE.>> *)
 			^s
 		)
 	) : (
-		public on: binaryStrm <STRM> ^ <Instance> = (
+		public on: binaryStrm <InputStream> ^ <Instance> = (
 			^self new initBinaryStream: binaryStrm
 		)
 	)
@@ -770,14 +713,13 @@ DAMAGE.>> *)
 			speed, since by design we always know we have another buffer byte to look at. *)
 			^self atEnd
 				ifTrue: [ f value ]
-				ifFalse: [ self buffer byteAt: self nextBufferPosition ]
+				ifFalse: [ self buffer at: self nextBufferPosition ]
 		)
 	) : (
 	)
 
-	public class ExternalOutputStream = ExternalStream <: BasicOutputStream (
-	(* %responsibility #updateBufferLocationAfterFlush
-	*)| 
+	public class ExternalOutputStream = ExternalStream (
+	| 
 	dirty <Boolean> ::= false. (* indicates whether the buffer contains unflushed modified data *)
 	|) (
 		advanceBufferLocation = (
@@ -793,36 +735,23 @@ DAMAGE.>> *)
 
 		externalFlush = (
 			self flush.
-			self descriptor flushIfFail: [ :err <ExternalError> | self error: err ]
-		)
-
-		finalize = (
-			self close
 		)
 
 		public flush = (
 			self dirty
 				ifTrue: [	self bufferNumElements > 0
-							ifTrue: [	self writeBuffer. self updateBufferLocationAfterFlush. 	].
+							ifTrue: [	self writeBuffer. self updateBufferLocationAfterFlush. ].
 						self dirty: false.	].
-		)
-
-		logicalFlush = (
-				self dirty
-						ifTrue: [    self bufferNumElements > 0
-												ifTrue: [    self writeBuffer; updateBufferLocationAfterFlush.     ].
-										self dirty: false.    ].
 		)
 
 		public put: byte <Integer> ^ <Integer> = (
 				| pos <Integer> |
 				pos:: self nextBufferPosition.
-				(* self buffer byteAt: pos put: byte. *)
-			self buffer at: pos+1 put: byte.	
+				self buffer at: pos+1 put: byte.	
 
 				pos:: pos + 1.
-				self nextBufferPosition: pos;
-						bufferNumElements: (pos max: self bufferNumElements).
+				nextBufferPosition:: pos.
+				bufferNumElements:: (pos max: bufferNumElements).
 				pos >= self bufferSize
 						ifTrue: [    self writeBuffer; advanceBuffer; dirty: false. ]
 						ifFalse: [ self dirty: true ].
@@ -836,9 +765,21 @@ DAMAGE.>> *)
 		public writeBuffer = (
 				(* Caller is responsible for updating dirty *)
 				self descriptor
-						write: self bufferNumElements 
+						write: bufferNumElements 
 						at: self bufferOrigin
 						ifFail: [ :err |  self error: err ]
+		)
+
+		public next: nElements <Integer> put: el <E> ^ <E> = (
+			nElements timesRepeat: [
+				self put: el		].
+			^el
+		)
+
+		public putAll: els <Vector[E]> ^ <Vector[Object]> = (
+			els do: [ :el <E> |
+				self put: el		].
+			^els
 		)
 	) : (
 		public onDescriptor: d <DESCRIPTOR> ^ <Instance> = (
@@ -846,10 +787,11 @@ DAMAGE.>> *)
 		)
 	)
 
-	public class ExternalReadStream = ExternalInputStream <: BasicReadStream(
+
 	(* %note: the actualPosition slot inherited from BasicReadStream is
 	not used; its access methods are reimplemented to use the
-	buffer origin and buffer position. *)) (
+	buffer origin and buffer position. *)
+	public class ExternalReadStream = ExternalInputStream <: BasicReadStream() (
 		actualAtEnd ^ <Boolean> = (
 				(* copied-down implementation from ExternalInputStream for efficiency *)
 				^self nextBufferPosition >= self bufferNumElements
@@ -878,32 +820,28 @@ DAMAGE.>> *)
 			| i <Integer> |
 			i:: index - self bufferOrigin.
 			^(i < 1 or: [ i > self bufferNumElements ])
-				ifFalse: [ self buffer byteAt: i - 1 ]
 				ifTrue: [	| pos <Integer> result <Integer> |
-								pos:: self position.
-								self position: index - 1.
-								(* Use a recursive call, which should now be in range *)
-								result:: self at: index.
-								self position: pos.
-								result	]
+									pos:: self position.
+									self position: index - 1.
+									(* Use a recursive call, which should now be in range *)
+									result:: self at: index.
+									self position: pos.
+									result	]
+				ifFalse: [ self buffer at: i - 1 ]
 		)
 
 		goodBufferOriginForPosition: nextPos <Integer> ^ <Integer> = (
 				(* Try to keep the origin on a buffer-aligned boundary *)
-				^nextPos - (nextPos \\ self bufferSize)
-		)
-
-		initializeActualPosition = (
-				(* disable initialization, since we don't use the inherited actualPosition instance variable *)
+				^nextPos - (nextPos % self bufferSize)
 		)
 
 		repositioningAt: index <Integer> ^ <Integer> = (
 			| i <Integer> |
 			i:: index - self bufferOrigin.
 			^(i < 1 or: [ i > self bufferNumElements ])
-				ifFalse: [ self buffer byteAt: i - 1 ]
 				ifTrue: [	self position: index - 1.
 								self at: index  ]
+				ifFalse: [ self buffer at: i - 1 ]
 		)
 
 		public size ^ <Integer> = (
@@ -920,20 +858,21 @@ DAMAGE.>> *)
 		)
 	)
 
-	public class ExternalReadWriteStream = ExternalReadStream <: BasicOutputStream <: ExternalOutputStream (
-		(* <: BasicOutputStream*)
-	(* Implements positionable streams of bytes from an external source.  Currently, this class is used both
-	for read-only streams and read-write streams, with different creation messages. *)) (
-		public contents  ^ <Vector[Integer]> = (
-			(* Obsolete: this method is included purely for BlueBook compatibility.  If possible, use 
-			#contentsRemaining and #contentsWritten, which will work when a ReadWriteStream
-			is substituted for a ReadStream or a WriteStream, unlike this method *)
-			^self collection
+	(* Implements positionable streams of bytes from an external source. *)
+	public class ExternalReadWriteStream = ExternalReadStream <: ExternalOutputStream () (
+		public atEnd ^ <Boolean> = (
+			(* Reimplemented for speed since we have ensured that atEnd and actualAtEnd mean
+				the same thing *)
+			^self actualAtEnd
+		)
+
+		actualAtEnd ^ <Boolean> = (
+				^self nextBufferPosition >= self bufferNumElements
 		)
 
 		contentsWritten  ^ <Vector[Integer]> = (
 				(* %copied (substituting for E) from BasicReadWriteStream *)
-				| cltn <VarSeqCltn[Integer]>  origPos <Integer> |
+				| cltn <Vector[Integer]>  origPos <Integer> |
 				cltn:: self newCollectionOfSize: self position.
 				origPos:: self position.
 				self position: 0.
@@ -946,7 +885,6 @@ DAMAGE.>> *)
 		public size ^ <Integer> = (
 			(* Make sure we flush our buffer if needed to ensure that
 			the buffer contents are taken into account *)
-
 			self flush.
 			^self descriptor size.
 		)
@@ -959,26 +897,44 @@ DAMAGE.>> *)
 				self dirty
 						ifTrue: [ self writeBuffer; dirty: false. ].
 		)
+
+		externalFlush = (
+			(* By default do regular flush.  Subclasses should extend to deal with any external buffers *)
+			self flush
+		)
+
+		public next: nElements <Integer> put: el <E> ^ <E> = (
+			nElements timesRepeat: [
+				self put: el		].
+			^el
+		)
+
+		public putAll: els <Vector[E]> ^ <Vector[Object]> = (
+			els do: [ :el <E> |
+				self put: el		].
+			^els
+		)
 	) : (
 		public onDescriptor: d <DESCRIPTOR> ^ <Instance> = (
 				^self new initDescriptor: d
 		)
 	)
 
-	class ExternalStream = Object (
 	(* This is the abstract superclass for all external stream classes.  
 	It provides buffer management for subclasses.   
 
 	Invariant: the buffer position is always less than the index of the last buffer element.   
 	This is accomplished by proactively filling/flushing the buffer when the end is reached.*)
-  | 
-	descriptor <DESCRIPTOR> (* = d. *)
-	buffer <ExternalProxy> (* I/O buffer, cached from descriptor for speed (0 indexed) *)
-	bufferSize <Integer> (* I/O buffer size, cached from descriptor for speed *)
-	bufferOrigin <Integer> (* the offset between position and buffer coordinates *)
-	public nextBufferPosition <Integer> (* The actual position, in buffer coordinates, of the next element (i.e. position + 1 in buffer coords) *)
-	public bufferNumElements <Integer> (* The number of valid data bytes in the buffer *)
-	|) (
+	class ExternalStream = Object (
+		| 
+		descriptor <DESCRIPTOR> (* = d. *)
+		buffer <ExternalProxy> (* I/O buffer, cached from descriptor for speed (0 indexed) *)
+		bufferSize <Integer> (* I/O buffer size, cached from descriptor for speed *)
+		bufferOrigin <Integer> (* the offset between position and buffer coordinates *)
+		public nextBufferPosition <Integer> (* The actual position, in buffer coordinates, of the next element (i.e. position + 1 in buffer coords) *)
+		public bufferNumElements <Integer>(* The number of valid data bytes in the buffer *)
+		|
+	) (
 		advanceBuffer = (
 				(* advance the buffer, and fill it if the receiver is readable.  Assumption: the last advanceBuffer completely
 					filled the buffer *)
@@ -1019,240 +975,9 @@ DAMAGE.>> *)
 			self bufferNumElements: 0.
 			self nextBufferPosition: 0.
 		)
-
-		postCopy = (
-			super postCopy.
-			self descriptor: self descriptor copy.
-			self initBuffer.
-		)
 	) : (
 		onDescriptor: d <DESCRIPTOR> ^ <Instance> = (
 				^self new initDescriptor: d
-		)
-	)
-
-	public class SeqCltnReadStream = BasicReadStream (
-	(* This is the standard concrete class used for creating ReadStreams on lists. *)| collection <Vector[E]> (* = sc. *)  |) (
-		accumulateUntil: predicate <[Boolean]>  ^ <Vector[E]> = (
-			| start <Integer> |
-
-			start:: self position.
-			[ predicate value ]
-				whileFalse: [ self position: self position + 1 ].
-			^self collection copyFrom: start + 1 to: self position
-		)
-
-		public actualNext ^<E> = (
-			| pos <Integer> |
-			pos:: self actualPosition.
-			pos:: pos + 1.
-			pos > self size
-				ifTrue: [ self error: 'Attempt to read past the end of a stream' ].
-			self actualPosition: pos.
-			^self collection at: pos
-		)
-
-		at: index <Integer> ^ <E> = (
-			^self collection at: index
-		)
-
-		public atEnd ^<Boolean> = (
-			(* %optimization: we can ensure that atEnd and actualAtEnd are identical, since we reimplement peek to avoid the superclass
-				peek buffer, because we can look ahead quickly in a seqcltn *)
-			^self actualAtEnd
-		)
-
-		public initCollection: sc <Vector[E]> = (
-			collection:: sc.
-		)
-
-		public next ^<E> = (
-			(* %optimization: we can ensure that next and actualNext are identical, since we reimplement peek to avoid the superclass
-				peek buffer, since we can look ahead quickly in a seqcltn *)
-			^self actualNext
-		)
-
-		nextFromPeek ^ <E> = (
-			(* If this happens, you should have overridden the calling method *)
-			self shouldNotHappen
-		)
-
-		public nextIfAbsent: f <[X def]> ^ <E | X> = (
-			| pos <Integer> |
-			pos:: self actualPosition.
-			pos:: pos + 1.
-			pos > self size
-				ifTrue: [ ^f value ].
-			self actualPosition: pos.
-			^self collection at: pos
-		)
-
-		public peek ^<E> = (
-			| pos <Integer> |
-			pos:: self position.
-			pos:: pos + 1.
-			pos > self size
-				ifTrue: [ self error: 'Attempt to read past the end of a stream' ].
-			^self collection at: pos
-		)
-
-		peekIfAbsent: f <[X def]>  ^ <E | X> = (
-			| pos <Integer> |
-			pos:: self position.
-			pos:: pos + 1.
-			pos > self size
-				ifTrue: [ ^f value ].
-			^self collection at: pos
-		)
-
-		peekVal ^ <E> = (
-			self shouldNotHappen
-		)
-
-		public position: p <Integer> = (
-			self actualPosition: p.
-			(* Don't have to unset the peekVal *)
-		)
-
-		public printOn: strm <CharOutputStream> = (
-			strm putAll: self class name;
-					putAll: '(position='; 	print: self position;
-					putAll: ' collection=';  print: self collection;
-					put: ")"
-		)
-
-		public size ^<Integer> = (
-			^self collection size
-		)
-	) : (
-		public on: sc <Vector[E]> ^<ReadStream[E]> = (
-			^self over: sc
-		)
-
-		over: sc <Vector[E]> ^ <Instance> = (
-			(* This is like on: except it returns type Instance.   on: for streams may return a non-instance type. *)
-			^self new initCollection: sc
-		)
-	)
-
-	public class SeqCltnReadWriteStream = BasicReadWriteStream (
-	(* This is the standard concrete class used for creating WriteStreams or ReadWriteStreams on lists. *)| buffer <Vector[E]> (* = sc *) |) (
-		accumulateUntil: predicate <[Boolean]>  ^ <Vector[E]> = (
-			| start <Integer> |
-			start:: self position.
-			[ predicate value ]
-				whileFalse: [ self position: self position + 1 ].
-			^self buffer copyFrom: start + 1 to: self position
-		)
-
-		actualNext ^ <E> = (
-			| pos <Integer> |
-			pos:: self actualPosition.
-			pos:: pos + 1.
-			pos > self size
-				ifTrue: [ self error: 'Attempt to read past the end of a stream' ].
-			self actualPosition: pos.
-			^self buffer at: pos
-		)
-
-		at: index <Integer> ^ <E> = (
-			self assert: [ index <= self size ].
-			^self buffer at: index
-		)
-
-		public atEnd ^ <Boolean> = (
-			(* %optimization: we can ensure that atEnd and actualAtEnd are identical, since we reimplement peek to avoid the superclass
-				peek buffer, because we can look ahead quickly in a seqcltn *)
-			^self actualAtEnd
-		)
-
-		collection ^ <Vector[E]> = (
-			^self buffer copyFrom: 1 to: self size
-		)
-
-		public initBuffer: sc <Vector[E]> = (
-			buffer:: sc.
-		)
-
-		next ^ <E> = (
-			(* %optimization: we can ensure that next and actualNext are identical, since we reimplement peek to avoid the superclass
-				peek buffer, since we can look ahead quickly in a seqcltn *)
-			^self actualNext
-		)
-
-		nextFromPeek ^ <E> = (
-			(* If this happens, you should have overridden the calling method *)
-			self shouldNotHappen
-		)
-
-		public nextIfAbsent: f <[X def]> ^ <E | X> = (
-			| pos <Integer> |
-			pos:: self actualPosition.
-			pos:: pos + 1.
-			pos > self size
-				ifTrue: [ ^f value ].
-			self actualPosition: pos.
-			^self buffer at: pos
-		)
-
-		public put: el <E> ^ <E> = (
-			| pos <Integer> |
-			super put: el.
-			(pos:: self position) > self buffer size
-				ifTrue: [ self initBuffer: (self buffer copyWithSize: (self buffer size * 2 max: 8)) ].
-			self buffer at: pos put: el.
-			^el
-		)
-
-		public peek ^ <E> = (
-			| pos <Integer> |
-			pos:: self position.
-			pos:: pos + 1.
-			pos > self size
-				ifTrue: [ self error: 'Attempt to read past the end of a stream' ].
-			^self buffer at: pos
-		)
-
-		peekIfAbsent: f <[X def]>  ^ <E | X> = (
-			| pos <Integer> |
-			pos:: self position.
-			pos:: pos + 1.
-			pos > self size
-				ifTrue: [ ^f value ].
-			^self buffer at: pos
-		)
-
-		peekVal ^ <E> = (
-			self shouldNotHappen
-		)
-
-		position: p <Integer> = (
-			self actualPosition: p.
-			(* Don't have to unset the peekVal *)
-		)
-
-		public size ^<Integer> = (
-			^self buffer size
-		)
-
-		public printOn: strm <CharOutputStream> = (
-			strm putAll: self class name;
-					putAll: '(position='; 	print: self position;
-					putAll: ' buffer=';  print: self buffer;
-					put: ")"		
-		)
-	) : (
-		public on: sc <Vector[E]> ^ <ReadWriteStream[E]> = (
-			^self over: sc
-		)
-
-		public on: sc <Vector[E]> numElements: n <Integer> ^ <ReadWriteStream[E]> = (
-			^(self over: sc) size: n
-		)
-
-		over: sc <Vector[E]> ^ <Instance> = (
-			(* This is like on: except it returns type Instance.   on: for streams may return a non-instance type. *)
-			^self new initBuffer: sc
 		)
 	)
 

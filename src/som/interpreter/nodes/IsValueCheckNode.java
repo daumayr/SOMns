@@ -11,6 +11,7 @@ import som.interpreter.nodes.nary.UnaryExpressionNode;
 import som.primitives.ObjectPrims.IsValue;
 import som.vm.constants.KernelObj;
 import som.vmobjects.SObject.SImmutableObject;
+import som.vmobjects.SObjectWithClass;
 
 
 /**
@@ -92,7 +93,8 @@ public abstract class IsValueCheckNode extends UnaryExpressionNode {
       if (allFieldsContainValues) {
         return rcvr;
       }
-      return KernelObj.signalException("signalNotAValueWith:", receiver);
+      return KernelObj.signalException("signalNotAValueWith:",
+          ((SObjectWithClass) receiver).getSOMClass());
     }
 
     private boolean allFieldsContainValues(final SImmutableObject rcvr) {

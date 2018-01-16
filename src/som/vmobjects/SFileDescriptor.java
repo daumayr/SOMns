@@ -41,9 +41,9 @@ public class SFileDescriptor extends SObjectWithClass {
     buffer = new SMutableArray(storage, Classes.arrayClass);
 
     try {
-      this.access = AccessModes.valueOf(mode.getString());
+      this.access = AccessModes.valueOf(mode.getString().toUpperCase());
     } catch (Exception e) {
-      dispatchHandler.executeDispatch(new Object[] {fail, "invalid access mode"});
+      dispatchHandler.executeDispatch(new Object[] {fail, "invalid access mode: " + mode});
     }
 
     try {
@@ -71,7 +71,7 @@ public class SFileDescriptor extends SObjectWithClass {
       return 0;
     }
 
-    if (access == AccessModes.write) {
+    if (access == AccessModes.WRITE) {
       fail.getMethod().invoke(new Object[] {fail, "Opened in write only"});
       return 0;
     }
@@ -105,7 +105,7 @@ public class SFileDescriptor extends SObjectWithClass {
       return;
     }
 
-    if (access == AccessModes.read) {
+    if (access == AccessModes.READ) {
       fail.getMethod().invoke(new Object[] {fail, "Opened in read only"});
       return;
     }
@@ -169,7 +169,7 @@ public class SFileDescriptor extends SObjectWithClass {
   }
 
   private enum AccessModes {
-    read("r"), write("rw"), readwrite("rw");
+    READ("r"), WRITE("rw"), READWRITE("rw");
     String mode;
 
     AccessModes(final String mode) {

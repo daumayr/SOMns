@@ -12,7 +12,6 @@ import som.vm.Symbols;
 import som.vmobjects.SClass;
 import som.vmobjects.SInvokable;
 import som.vmobjects.SObject.SImmutableObject;
-import som.vmobjects.SObjectWithClass;
 
 
 public final class KernelObj {
@@ -22,7 +21,6 @@ public final class KernelObj {
   @CompilationFinal public static SClass indexOutOfBoundsClass;
 
   public static Object signalException(final String selector, final Object receiver) {
-    SObjectWithClass rcvr = (SObjectWithClass) receiver;
     CompilerDirectives.transferToInterpreter();
     VM.thisMethodNeedsToBeOptimized("Should be optimized or on slowpath");
 
@@ -30,7 +28,7 @@ public final class KernelObj {
     SInvokable disp = (SInvokable) KernelObj.kernel.getSOMClass().lookupPrivate(
         Symbols.symbolFor(selector),
         KernelObj.kernel.getSOMClass().getMixinDefinition().getMixinId());
-    return disp.invoke(new Object[] {KernelObj.kernel, rcvr.getSOMClass()});
+    return disp.invoke(new Object[] {KernelObj.kernel, receiver});
   }
 
   @GenerateNodeFactory

@@ -363,12 +363,6 @@ DAMAGE.>> *)
     public pattern: p <String> = (
       pattern_0:: p
     )
-
-    (*stream stuff*)
-    public printOn: strm <CharOutputStream> = (
-      super printOn: strm.
-      strm nextPut: "("; print: self pattern; nextPut: ")".
-    )
   ) : (
     public for: pat <String>  ^<FilePattern> = (
       ^self new pattern: pat
@@ -561,45 +555,36 @@ DAMAGE.>> *)
       ^ elements last name
     )
 
-    (*stream stuff*)
-    charInputStream ^ <CharInputStream> = (
-	    ^super charInputStream
-      (* Override to use a ReadConverter, which is faster for things like upTo: *)
-      (* ^CharacterReadConverter on: self readStream *)
+    public charInputStream ^ <CharInputStream> = (
+      ^CharacterReadConverter on: self readStream.
     )
 
-    charInputStreamDo: blk <[:CharInputStream | X def]>  ifFail: fail <[Y def]>  ^ <X | Y> = (
-      (* %kludge: this is a quick hack that catches only some kinds of
-        problems *)
-      ^self exists
-        ifFalse: [ fail value ]
-        ifTrue: [ super charInputStreamDo: blk ]
-    )
-
-    charOutputStream ^ <CharOutputStream> = (
+    public charOutputStream ^ <CharOutputStream> = (
       ^CharacterInputOutputConverter on: self writeStream
     )
 
-    public inputStream ^ <InputStream[Integer]> = (
-      (* We are using this for now since read streams are faster at things like upTo: than input streams *)
-      ^self readStream
-    )
-
-    public outputStream ^ <OutputStream[Integer]> = (
-      ^ExternalOutputStream onDescriptor: (self open: #write ifFail: [ :err <ExternalError> | self error: err ])
-    )
-
     public readStream ^ <ExternalReadStream> = (
-      ^ExternalReadStream onDescriptor:
-      (self open: #read ifFail: [ :err <ExternalError> | self error: err ])
+      ^ExternalReadStream onDescriptor: (
+        self open: #read ifFail: [ :err <Exception> | 
+          self error: err 
+        ]
+      )
     )
 
     public readWriteStream ^ <ExternalReadWriteStream> = (
-      ^ExternalReadWriteStream onDescriptor: (self open: #readwrite ifFail: [ :err <ExternalError> | self error: err ])
+      ^ExternalReadWriteStream onDescriptor: (
+        self open: #readwrite ifFail: [ :err <Exception> | 
+          self error: err 
+        ]
+      )
     )
 
     public writeStream ^ <ExternalReadWriteStream> = (
-      ^ExternalReadWriteStream onDescriptor: (self open: #write ifFail: [ :err <ExternalError> | self error: err ])
+      ^ExternalOutputStream onDescriptor: (
+        self open: #write ifFail: [ :err <Exception> | 
+          self error: err 
+        ]
+      )
     )
   ) : (
     public currentDirectory ^<FilePath> = (

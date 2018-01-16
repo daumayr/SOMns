@@ -137,7 +137,8 @@ public abstract class ActivitySpawn {
     public final Object spawnProcess(final SImmutableObject procMod,
         final SClass procCls, @Cached("createIsValue()") final IsValue isVal) {
       if (!isVal.executeEvaluated(procCls)) {
-        KernelObj.signalException("signalNotAValueWith:", procCls);
+        KernelObj.signalException("signalNotAValueWith:",
+            ((SObjectWithClass) procCls).getSOMClass());
       }
 
       SSymbol sel = procCls.getMixinDefinition().getPrimaryFactorySelector();
@@ -215,7 +216,8 @@ public abstract class ActivitySpawn {
         final SClass procCls, final SArray arg, final Object[] argArr,
         @Cached("createIsValue()") final IsValue isVal) {
       if (!isVal.executeEvaluated(procCls)) {
-        KernelObj.signalException("signalNotAValueWith:", procCls);
+        KernelObj.signalException("signalNotAValueWith:",
+            ((SObjectWithClass) procCls).getSOMClass());
       }
 
       SSymbol sel = procCls.getMixinDefinition().getPrimaryFactorySelector();

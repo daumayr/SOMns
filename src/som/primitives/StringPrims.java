@@ -12,6 +12,7 @@ import som.interpreter.nodes.nary.TernaryExpressionNode;
 import som.interpreter.nodes.nary.UnaryBasicOperation;
 import som.interpreter.nodes.nary.UnaryExpressionNode;
 import som.vm.Symbols;
+import som.vm.constants.KernelObj;
 import som.vmobjects.SAbstractObject;
 import som.vmobjects.SArray;
 import som.vmobjects.SSymbol;
@@ -165,10 +166,18 @@ public class StringPrims {
       Object[] storage = chars.getObjectStorage(chars.ObjectStorageType);
       StringBuilder sb = new StringBuilder(storage.length);
       for (Object o : storage) {
+        if (!(o instanceof String) || ((String) o).length() != 1) {
+          KernelObj.signalException("signalArgumentError:", storage);
+        }
         sb.append((String) o);
       }
 
       return sb.toString();
+    }
+
+    @Specialization
+    public final void doGeneric(final Object obj) {
+      KernelObj.signalException("signalInvalidArgument:", obj);
     }
   }
 
@@ -176,9 +185,18 @@ public class StringPrims {
   @Primitive(primitive = "charFrom:")
   public abstract static class CharFromPrim extends UnaryExpressionNode {
 
-    @Specialization
+    public boolean inRange(final long val) {
+      return (0 < val && val < 128);
+    }
+
+    @Specialization(guards = "inRange(val)")
     public final String doString(final long val) {
       return new String(new char[] {(char) val});
+    }
+
+    @Specialization
+    public final void doGeneric(final long val) {
+      KernelObj.signalException("signalArgumentError:", "" + val);
     }
   }
 
@@ -188,8 +206,17 @@ public class StringPrims {
 
     @Specialization
     public final long doString(final String c) {
-      assert c != null && c.length() == 1;
+      if (c == null || c.length() != 1) {
+        KernelObj.signalException("signalArgumentError:", c);
+        return -1;
+      }
+
       return c.charAt(0);
+    }
+
+    @Specialization
+    public final void doGeneric(final Object obj) {
+      KernelObj.signalException("signalArgumentError:", obj);
     }
   }
 }

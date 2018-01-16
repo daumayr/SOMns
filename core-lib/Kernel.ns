@@ -71,9 +71,6 @@ class Kernel vmMirror: vmMirror = Object <: Value (
     public println  = ( vmMirror printNewline: self asString )
     public halt     = ( vmMirror halt: self )
     public asString = ( ^ 'instance of ' + (vmMirror objClassName: self) )
-    public printOn: stream = (
-      stream putAll: self asString.
-    )
   )
 
   public class Object = Thing ()
@@ -414,12 +411,6 @@ class Kernel vmMirror: vmMirror = Object <: Value (
       ^ self substringFrom: argument to: argument
     )
 
-    public do: block = (
-      1 to: self length do: [ :i |
-        block value: (self charAt: i).
-      ]
-    )
-
     (* Printing *)
     public print = ( vmMirror printString: self )
   ) : (
@@ -438,44 +429,16 @@ class Kernel vmMirror: vmMirror = Object <: Value (
     public print    = ( '#' print. super print )
   )
 
-  public class Character = String ()
-  ( 
-  ) : (
-    public asciiValue: val = (
-
-    )
+  public class Character = String () () : (
     
     (*convert to char*)
-    public fromValue: val = (
-      ^vmMirror charFrom: val
+    public from: anInt = (
+      ^vmMirror charFrom: anInt.
     )
 
     public value: char = (
       ^vmMirror charValue: char
     )
-
-    (*constants*)
-    public backspace = (^'\b')
-    public bell = (^'\a')
-    public cr = (^'\r')(*)
-    public eof = ()
-    public eot = ()*)
-    public esc = (^'\e')
-    public ff = (^'\f')
-    public lf = (^'\n')(*)
-    public newPage = ()
-    public nl = ()*)
-    public nul = (^'\0')
-    public space = (^'\s')
-    public tab = (^'\t')
-  )
-
-  public class StringBuilder = Object (
-
-  )(
-
-  ) : (
-    public new: size = ( ^ vmMirror array: self new: size )
   )
 
   public class ArrayReadMixin = ()(
@@ -948,6 +911,16 @@ class Kernel vmMirror: vmMirror = Object <: Value (
     )
   )
 
+  public class ArgumentError signalWith: argument = Exception (
+    |
+      public arg = argument.
+    | 
+  )(
+    public asString = (
+      ^ 'ArgumentError(' + arg + ')'.
+    )
+  )
+
   (* Exception signaled when a Value is instantiated referring to a mutable object. *)
   public class NotAValue signalWith: aClass = Exception (
     | public class = aClass. |
@@ -980,5 +953,9 @@ class Kernel vmMirror: vmMirror = Object <: Value (
   (* Short cut from VM. Likely to be removed when optimized. *)
   private signalTOCannotBeValues: aClass = (
     TransferObjectsCannotBeValues signalWith: aClass
+  )
+
+  private signalArgumentError: message = (
+    ArgumentError signalWith: message.
   )
 )

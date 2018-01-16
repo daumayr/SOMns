@@ -13,6 +13,7 @@ import som.primitives.actors.PromisePrims.IsActorModule;
 import som.vm.VmSettings;
 import som.vm.constants.KernelObj;
 import som.vmobjects.SClass;
+import som.vmobjects.SObjectWithClass;
 import tools.concurrency.ActorExecutionTrace;
 import tools.concurrency.Tags.ExpressionBreakpoint;
 import tools.debugger.entities.ActivityType;
@@ -40,7 +41,8 @@ public abstract class CreateActorPrim extends BinarySystemOperation {
 
   @Specialization(guards = "!isValue.executeEvaluated(argument)")
   public final Object throwNotAValueException(final Object receiver, final Object argument) {
-    return KernelObj.signalException("signalNotAValueWith:", argument);
+    return KernelObj.signalException("signalNotAValueWith:",
+        ((SObjectWithClass) argument).getSOMClass());
   }
 
   @Override
