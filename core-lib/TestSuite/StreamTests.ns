@@ -21,33 +21,33 @@ class StreamTests usingPlatform: platform testFramework: minitest = Value (
     readWriteStream, and then read and checked to make sure it works'.
   )(
     public testReadBinary = (
-      | fp cc t |
+      | fp cc b |
+      (*file contains bytes with increasing values, starting with 1*)
       fp:: filePath for: path + '/Binary.blob'.
       cc:: fp readStream.
 
+      (*verify stream is at beginning*)
       assert: cc position = 0.
       deny: cc atEnd.
 
-      t:: (cc next: (cc size)).
+      (*read 10 bytes into t*)
+      b:: (cc next: 10).
 
-      1 to: 20 do: [ :i|
-        assert: (t at: i) = i.
+      (*verify read data*)
+      1 to: 10 do: [ :i|
+        assert: (b at: i) = i.
       ].
 
-      assert: cc atEnd.
-      
-      cc close.
-    )
-
-    public testReadBinary2 = (
-      | fp cc t |
-      fp:: filePath for: path + '/Binary.blob'.
-      cc:: fp readStream.
-
-      1 to: 20 do: [ :i|
+      (*check that peek/next work and position changes accordingly *)
+      11 to: (cc size) do: [ :i|
         assert: cc peek = i.
+        assert: cc position = (i - 1).
         assert: cc next = i.
+        assert: cc position = i.
       ].
+
+      (*stream is at end*)
+      assert: cc atEnd.
       
       cc close.
     )
