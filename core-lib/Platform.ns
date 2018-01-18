@@ -6,12 +6,14 @@ class Platform usingVmMirror: vmMirror = Value (
   public system  = (vmMirror load: 'System.ns' nextTo: self)  usingVmMirror: vmMirror.
   public mirrors = (vmMirror load: 'Mirrors.ns' nextTo: self) usingVmMirror: vmMirror.
   public actors      = (vmMirror load: 'Actors.ns'    nextTo: self) usingVmMirror: vmMirror usingKernel: kernel.
+  public derby       = (vmMirror load: 'Derby.ns'    nextTo: self) usingVmMirror: vmMirror usingPlatform: self.
   public transactions= (vmMirror load: 'Transactions.ns' nextTo: self) usingVmMirror: vmMirror usingKernel: kernel.
   public threading   = (vmMirror load: 'Threading.ns' nextTo: self) usingVmMirror: vmMirror usingKernel: kernel.
   public processes   = (vmMirror load: 'Processes.ns' nextTo: self) usingVmMirror: vmMirror.
   public collections = (vmMirror load: 'Collections.ns' nextTo: self) usingKernel: kernel.
   public streams     = (vmMirror load: 'Streams.ns' nextTo: self) usingPlatform: self.
   public files       = (vmMirror load: 'Files.ns' nextTo: self) usingVmMirror: vmMirror usingPlatform: self.
+  public http        = (vmMirror load: 'Http.ns' nextTo: self) usingVmMirror: vmMirror usingPlatform: self.
 |
   vmMirror kernelIndexOutOfBounds: kernel IndexOutOfBounds.
 )(
