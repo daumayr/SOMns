@@ -389,7 +389,7 @@ DAMAGE.>> *)
 		public upTo: del <Object> ^ <String> = (
 			| bytes <Vector[Integer]> s <String> lfs <Integer> j <Integer> delimiter <Character> con <Vector[Character]> |
 
-			(self havePeeked and: [ self peek == del ])
+			(self havePeeked and: [ self peek = del ])
 			ifTrue: [
 				con:: super upTo: del.
 				^con isString
@@ -404,7 +404,7 @@ DAMAGE.>> *)
 				ifTrue: [	delimiter = '\r'
 									ifTrue: [	(* If cr was the delim, got to check for reading the lf, since
 													it was at the lower level *)
-													(self binaryStream atEnd not and: [ self binaryStream peek == 10 ])
+													(self binaryStream atEnd not and: [ self binaryStream peek = 10 ])
 														ifTrue: [ self binaryStream next ].
 												].
 							]
@@ -427,7 +427,7 @@ DAMAGE.>> *)
 			lfs:: 0.
 			1 to: bytes size do:
 				[ :ind <Integer> |
-					(bytes at: ind) == 10
+					(bytes at: ind) = 10
 						ifTrue: [ lfs:: lfs + 1 ]
 				].
 			self havePeeked
@@ -437,7 +437,7 @@ DAMAGE.>> *)
 								j:: 1.	  ].
 			bytes do:
 				[ :b <Integer> |
-					b == 10
+					b = 10
 						ifFalse: [	s at: j put: b.
 										j:: j + 1.	 ]
 				].
@@ -596,11 +596,8 @@ DAMAGE.>> *)
 				[ :i <Integer> |
 					| c <Integer> |
 					c:: self binaryStream repositioningAt: i.
-					(usingCrLfConvention and: [ c == 10 ]) (* lf *)
-						ifFalse: [	c == del
-											ifTrue: [ ^n ]
-											ifFalse: [	n:: n + 1 ]
-									]
+					c = del	ifTrue: [ ^n ]
+									ifFalse: [	n:: n + 1 ]
 				].
 			^n
 		)
@@ -608,20 +605,21 @@ DAMAGE.>> *)
 		public upTo: del <Character> ^ <String> = (
 			| sz <Integer> s <String> lfs <Integer> offset <Integer> delimiter <Integer> pos <Integer> bsize <Integer> i <Integer> |
 
-			(self havePeeked and: [ self peek == del ])
+			delimiter:: Character value: del.
+			(self havePeeked and: [ self peek = del ])
 				ifTrue: [ ^super upTo: del ].
 
-			delimiter:: del value.
+			
 			pos:: self binaryStream position.
 
 			(* Scan for the delimiter in the binary stream *)
 			sz:: self numCharsUpTo: delimiter.
 
 			self havePeeked ifTrue: [	
-				s:: String new: sz + 1.
+				s:: Array new: sz + 1.
 				s at: 1 put: self next.
 				offset:: 1. 
-			] ifFalse: [	s:: String new: sz.
+			] ifFalse: [	s:: Array new: sz.
 				offset:: 0. 
 			].
 
@@ -630,9 +628,9 @@ DAMAGE.>> *)
 			[ i <= sz ]
 				whileTrue: [	| code <Integer> |
 									code:: self binaryStream repositioningAt: pos.
-									s at: i + offset put: code.
+									s at: i + offset put: (Character from: code).
 									i:: i + 1.
-									(code == 13 and: [usingCrLfConvention])
+									(code = 13 and: [usingCrLfConvention])
 										ifTrue: [	pos:: pos + 1. ].
 									pos:: pos + 1.	].
 			(* The following fiddly code is to set the binary stream position to pos without
@@ -640,7 +638,7 @@ DAMAGE.>> *)
 			self binaryStream position: pos - 1.
 			self binaryStream atEnd
 				ifFalse: [ self binaryStream next ].
-			^s
+			^ String from: s
 		)
 	) : (
 		public on: binaryStrm <InputStream> ^ <Instance> = (
@@ -807,10 +805,10 @@ DAMAGE.>> *)
 				(bufPos >= 0 and: [ bufPos < self bufferNumElements ])
 						ifTrue: [ self nextBufferPosition: bufPos ]
 						ifFalse: [    (* We need to reload the buffer *)
-							self assert: [ p between: 0 and: self size ] message: ''.
+							(p between: 1 and: (self size + 1)) ifFalse: [ self error: 'invalid position'].
 							self writeIfNeededBeforePositionChange.
 							self bufferOrigin: (self goodBufferOriginForPosition: p).
-							self descriptor position: self bufferOrigin.
+							(*self descriptor position: self bufferOrigin.*)
 							self fillBuffer.
 							self nextBufferPosition: p - self bufferOrigin.    
 						].
@@ -835,13 +833,13 @@ DAMAGE.>> *)
 				^nextPos - (nextPos % self bufferSize)
 		)
 
-		repositioningAt: index <Integer> ^ <Integer> = (
+		public repositioningAt: index <Integer> ^ <Integer> = (
 			| i <Integer> |
 			i:: index - self bufferOrigin.
 			^(i < 1 or: [ i > self bufferNumElements ])
 				ifTrue: [	self position: index - 1.
 								self at: index  ]
-				ifFalse: [ self buffer at: i - 1 ]
+				ifFalse: [ self buffer at: i ]
 		)
 
 		public size ^ <Integer> = (
