@@ -82,9 +82,9 @@ public abstract class BlockPrims {
     public final Object doGeneric(final SBlock receiver,
         @Cached("create()") final IndirectCallNode call) {
       if (receiver.getMethod().getNumberOfArguments() != 1) {
-        return KernelObj.signalException("signalBAMismatch:actual:",
-            (long) receiver.getMethod().getNumberOfArguments() - 1,
-            0l);
+        return KernelObj.signalException("signalArgumentError:",
+            " wrong number of Block arguments: 0, expected: "
+                + (receiver.getMethod().getNumberOfArguments() - 1));
       }
       return receiver.getMethod().invoke(call, new Object[] {receiver});
     }
@@ -117,9 +117,9 @@ public abstract class BlockPrims {
     public final Object doGeneric(final SBlock receiver, final Object arg,
         @Cached("create()") final IndirectCallNode call) {
       if (receiver.getMethod().getNumberOfArguments() != 2) {
-        return KernelObj.signalException("signalBAMismatch:actual:",
-            (long) receiver.getMethod().getNumberOfArguments() - 1,
-            1l);
+        return KernelObj.signalException("signalArgumentError:",
+            " wrong number of Block arguments: 1, expected: "
+                + (receiver.getMethod().getNumberOfArguments() - 1));
       }
       return receiver.getMethod().invoke(call, new Object[] {receiver, arg});
     }
@@ -154,9 +154,9 @@ public abstract class BlockPrims {
         final Object arg2,
         @Cached("create()") final IndirectCallNode call) {
       if (receiver.getMethod().getNumberOfArguments() != 3) {
-        return KernelObj.signalException("signalBAMismatch:actual:",
-            (long) receiver.getMethod().getNumberOfArguments() - 1,
-            2l);
+        return KernelObj.signalException("signalArgumentError:",
+            " wrong number of Block arguments: 2, expected: "
+                + (receiver.getMethod().getNumberOfArguments() - 1));
       }
 
       return receiver.getMethod().invoke(call, new Object[] {receiver, arg1, arg2});
@@ -210,10 +210,10 @@ public abstract class BlockPrims {
     public final Object doGeneric(final SBlock receiver, final SArray args,
         @Cached("create()") final IndirectCallNode call) {
       if (receiver.getMethod().getNumberOfArguments() != getNumArgs(args)) {
-
-        return KernelObj.signalException("signalBAMismatch:actual:",
-            (long) receiver.getMethod().getNumberOfArguments() - 1,
-            slprim.executeEvaluated(args));
+        return KernelObj.signalException("signalArgumentError:",
+            " wrong number of Block arguments: " + getNumArgs(args)
+                + ", expected: "
+                + (receiver.getMethod().getNumberOfArguments() - 1));
       }
       return receiver.getMethod().invoke(call, prepareArguments(receiver, args));
     }

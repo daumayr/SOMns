@@ -945,17 +945,6 @@ class Kernel vmMirror: vmMirror = Object <: Value (
     )
   )
 
-  public class BlockArgumentsMismatch signalWith: expArgs actual: actArgs = Exception (
-    | public expected = expArgs.
-      public actual = actArgs.
-    |
-    self signal.
-  )(
-    public asString = (
-      ^ 'BlockArgumentsMismatch(expected:' + expected + ' actual: ' + actual + ')'
-    )
-  )
-
   (* Short cut from VM. Likely to be removed when optimized. *)
   private signalNotAValueWith: aClass = (
     NotAValue signalWith: aClass
