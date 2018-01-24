@@ -979,6 +979,206 @@ DAMAGE.>> *)
 		)
 	)
 
+	(* This is the standard concrete class used for creating ReadStreams on lists. *)
+	public class SeqCltnReadStream = BasicReadStream (
+ 	| collection <Vector[E]> |) (
+ 		accumulateUntil: predicate <[Boolean]>  ^ <Vector[E]> = (
+ 			| start <Integer> |
+ 
+ 			start:: self position.
+ 			[ predicate value ]
+ 				whileFalse: [ self position: self position + 1 ].
+ 			^self collection copyFrom: start + 1 to: self position
+ 		)
+ 
+ 		public actualNext ^<E> = (
+ 			| pos <Integer> |
+ 			pos:: self actualPosition.
+ 			pos:: pos + 1.
+ 			pos > self size
+ 				ifTrue: [ self error: 'Attempt to read past the end of a stream' ].
+ 			self actualPosition: pos.
+ 			^self collection at: pos
+ 		)
+ 
+ 		public at: index <Integer> ^ <E> = (
+ 			^self collection at: index
+ 		)
+ 
+ 		public atEnd ^<Boolean> = (
+ 			^self actualAtEnd
+ 		)
+ 
+ 		public initCollection: sc <Vector[E]> = (
+ 			collection:: sc.
+ 		)
+ 
+ 		public next ^<E> = (
+ 			^self actualNext
+ 		)
+ 
+ 		nextFromPeek ^ <E> = (
+ 			self subclassResponsibility
+ 		)
+ 
+ 		public nextIfAbsent: f <[X def]> ^ <E | X> = (
+ 			| pos <Integer> |
+ 			pos:: self actualPosition.
+ 			pos:: pos + 1.
+ 			pos > self size
+ 				ifTrue: [ ^f value ].
+ 			self actualPosition: pos.
+ 			^self collection at: pos
+ 		)
+ 
+ 		public peek ^<E> = (
+ 			| pos <Integer> |
+ 			pos:: self position.
+ 			pos:: pos + 1.
+ 			pos > self size
+ 				ifTrue: [ self error: 'Attempt to read past the end of a stream' ].
+ 			^self collection at: pos
+ 		)
+ 
+ 		peekIfAbsent: f <[X def]>  ^ <E | X> = (
+ 			| pos <Integer> |
+ 			pos:: self position.
+ 			pos:: pos + 1.
+ 			pos > self size
+ 				ifTrue: [ ^f value ].
+ 			^self collection at: pos
+ 		)
+ 
+ 		peekVal ^ <E> = (
+ 			self subclassResponsibility
+ 		)
+ 
+ 		public position: p <Integer> = (
+ 			self actualPosition: p.
+ 			(* Don't have to unset the peekVal *)
+ 		)
+ 
+ 		public size ^<Integer> = (
+ 			^self collection size
+ 		)
+ 	) : (
+ 		public on: sc <Vector[E]> ^<ReadStream[E]> = (
+ 			^self over: sc
+ 		)
+ 
+ 		over: sc <Vector[E]> ^ <Instance> = (
+ 			(* This is like on: except it returns type Instance.   on: for streams may return a non-instance type. *)
+ 			^self new initCollection: sc
+ 		)
+ 	)
+ 
+	(* This is the standard concrete class used for creating WriteStreams or ReadWriteStreams on lists. *)
+ 	public class SeqCltnReadWriteStream = BasicReadWriteStream (
+ 	| buffer <Vector[E]> |) (
+ 		accumulateUntil: predicate <[Boolean]>  ^ <Vector[E]> = (
+ 			| start <Integer> |
+ 			start:: self position.
+ 			[ predicate value ]
+ 				whileFalse: [ self position: self position + 1 ].
+ 			^self buffer copyFrom: start + 1 to: self position
+ 		)
+ 
+ 		actualNext ^ <E> = (
+ 			| pos <Integer> |
+ 			pos:: self actualPosition.
+ 			pos:: pos + 1.
+ 			pos > self size
+ 				ifTrue: [ self error: 'Attempt to read past the end of a stream' ].
+ 			self actualPosition: pos.
+ 			^self buffer at: pos
+ 		)
+ 
+ 		public at: index <Integer> ^ <E> = (
+ 			^self buffer at: index
+ 		)
+ 
+ 		public atEnd ^ <Boolean> = (
+ 			^self actualAtEnd
+ 		)
+ 
+ 		public collection ^ <Vector[E]> = (
+ 			^self buffer copyFrom: 1 to: self size
+ 		)
+ 
+ 		public initBuffer: sc <Vector[E]> = (
+ 			buffer:: sc.
+ 		)
+ 
+ 		public next ^ <E> = (
+ 			^self actualNext
+ 		)
+ 
+ 		nextFromPeek ^ <E> = (
+ 			self subclassResponsibility
+ 		)
+ 
+ 		public nextIfAbsent: f <[X def]> ^ <E | X> = (
+ 			| pos <Integer> |
+ 			pos:: self actualPosition.
+ 			pos:: pos + 1.
+ 			pos > self size
+  			ifTrue: [ ^f value ].
+ 			self actualPosition: pos.
+ 			^self buffer at: pos
+ 		)
+ 
+ 		public put: el <E> ^ <E> = (
+ 			| pos <Integer> |
+ 			super put: el.
+ 			self buffer at: (self position) put: el.
+ 			^el
+ 		)
+ 
+ 		public peek ^ <E> = (
+ 			| pos <Integer> |
+ 			pos:: self position.
+ 			pos:: pos + 1.
+ 			pos > self size
+ 				ifTrue: [ self error: 'Attempt to read past the end of a stream' ].
+			^self buffer at: pos
+		)
+
+		peekIfAbsent: f <[X def]>  ^ <E | X> = (
+			| pos <Integer> |
+			pos:: self position.
+			pos:: pos + 1.
+			pos > self size
+				ifTrue: [ ^f value ].
+			^self buffer at: pos
+ 		)
+ 
+ 		peekVal ^ <E> = (
+ 			self subclassResponsibility
+ 		)
+ 
+ 		public position: p <Integer> = (
+ 			self actualPosition: p.
+ 			(* Don't have to unset the peekVal *)
+ 		)
+ 
+ 		public size ^<Integer> = (
+ 			^self buffer size
+ 		)
+ 	) : (
+ 		public on: sc <Vector[E]> ^ <ReadWriteStream[E]> = (
+ 			^self over: sc
+ 		)
+ 
+ 		public on: sc <Vector[E]> numElements: n <Integer> ^ <ReadWriteStream[E]> = (
+ 			^(self over: sc) size: n
+ 		)
+ 
+ 		over: sc <Vector[E]> ^ <Instance> = (
+ 			(* This is like on: except it returns type Instance.   on: for streams may return a non-instance type. *)
+ 			^self new initBuffer: sc
+ 		)
+ 	)
+
 	usingCrLfConvention = (
 		(* The current code only distinguishes systems that use CR and systems use CRLF for line endings. In order to generate files that are printed correctly on systems that use LF (Linux, OS X), we default to CRLF for now. *)
 		^ true

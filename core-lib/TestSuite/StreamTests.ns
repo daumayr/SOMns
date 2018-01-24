@@ -119,6 +119,39 @@ class StreamTests usingPlatform: platform testFramework: minitest = Value (
 
       assert: t = testString.
     )
+
+    public testCollectionReadStream = (
+      | v cs |
+      v:: Vector new.
+      1 to: 20 do: [ :i|
+        v append: i.
+      ].
+
+      cs:: Streams SeqCltnReadStream on: v.
+      assert: cs position = 0.
+      deny: cs atEnd.
+
+      assert: cs size = v size.
+      1 to: 20 do: [ :i|
+        assert: (v at: i) = cs next.
+      ].
+    )
+
+    public testCollectionReadWriteStream = (
+      | v cs |
+      v:: Array new: 20.
+      cs:: Streams SeqCltnReadWriteStream on: v.
+      1 to: 20 do: [ :i|
+        cs put: i.
+      ].
+
+      cs position:0.
+
+      assert: (cs size = 20 ).
+      1 to: 20 do: [ :i|
+        assert: (cs next) = i.
+      ].
+    )
   ) : (
     TEST_CONTEXT = ()
   )
