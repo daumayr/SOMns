@@ -913,8 +913,8 @@ class Kernel vmMirror: vmMirror = Object <: Value (
 
   public class ArgumentError signalWith: argument = Exception (
     |
-      public arg = argument.
-    | 
+      public arg = argument. | 
+    self signal.
   )(
     public asString = (
       ^ 'ArgumentError(' + arg + ')'.
