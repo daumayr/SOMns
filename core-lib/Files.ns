@@ -37,6 +37,7 @@ DAMAGE.>> *)
   private ExternalReadWriteStream = platform streams ExternalReadWriteStream.
   private CharacterReadConverter = platform streams CharacterReadConverter.
   private CharacterInputOutputConverter = platform streams CharacterInputOutputConverter.
+  private system = platform system.
 |
   vmMirror fileDescriptorClass: FileDescriptor.
   vmMirror fileObject:  self.
@@ -523,8 +524,20 @@ DAMAGE.>> *)
     )
 
     public open: mode <Symbol> ifFail: err <[:IOException | X def]>  ^ <FileDescriptor | X> = (
+      | path |
+      self isAbsolute ifTrue: [
+        path:: self pattern.
+      ] ifFalse: [
+        (pattern charAt: 1) = '.' ifTrue: [
+          path:: (FilePath currentDirectory pattern) + (pattern substringFrom: 2 to: (pattern length)).
+        ] ifFalse: [
+          path:: (FilePath currentDirectory / self  ) pattern.
+        ]
+      ] .
+      path println.
+
       (* Modes: #read, #write, #readWrite *)
-      ^ (FileDescriptor for: self pattern mode: mode)
+      ^ (FileDescriptor for: path mode: mode)
         openIfFail: [:e <IOException> |
           ^ err value: e ]
     )
@@ -588,7 +601,8 @@ DAMAGE.>> *)
     )
   ) : (
     public currentDirectory ^<FilePath> = (
-        ^ FilePath for: (vmMirror pathCurrentDirectory: nil)
+      ^ (FilePath for: (system arguments at: 1)) containingDirectory.
+       (*) ^ FilePath for: (vmMirror pathCurrentDirectory: nil)*)
     )
 
     public for: name <String> ^ <FilePath> = (
