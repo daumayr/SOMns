@@ -11,7 +11,6 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryPoolMXBean;
 import java.lang.management.MemoryType;
 import java.lang.management.MemoryUsage;
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedList;
@@ -153,18 +152,17 @@ public class TracingBackend {
     }
   }
 
-  @TruffleBoundary
   static void returnBuffer(final ByteBuffer b) {
     if (b == null) {
       return;
     }
 
-    b.limit(b.position());
-    b.rewind();
+    returnBufferGlobally(b);
+  }
 
-    synchronized (fullBuffers) {
-      fullBuffers.add(b);
-    }
+  @TruffleBoundary
+  private static void returnBufferGlobally(final ByteBuffer b) {
+    fullBuffers.offer(b);
   }
 
   private static HashSet<TracingActivityThread> tracingThreads = new HashSet<>();
@@ -203,9 +201,6 @@ public class TracingBackend {
     if (b == null) {
       return;
     }
-
-    b.limit(b.position());
-    b.rewind();
 
     synchronized (externalData) {
       externalData.add(b);
@@ -256,7 +251,7 @@ public class TracingBackend {
             FileOutputStream edfos = new FileOutputStream(edf);
             BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(sfos))) {
 
-          while (cont || TracingBackend.fullBuffers.size() > 0) {
+          while (cont || !TracingBackend.fullBuffers.isEmpty()) {
             ByteBuffer b;
 
             try {
@@ -272,7 +267,7 @@ public class TracingBackend {
               continue;
             }
 
-            if (b.remaining() <= Implementation.IMPL_THREAD.getSize() +
+            if (b.position() <= Implementation.IMPL_THREAD.getSize() +
                 Implementation.IMPL_CURRENT_ACTIVITY.getSize()) {
               // Ignore buffers that only contain the thread index
               b.clear();
@@ -282,7 +277,9 @@ public class TracingBackend {
 
             synchronized (externalData) {
               while (!externalData.isEmpty()) {
-                edfos.getChannel().write(externalData.removeFirst());
+                // TODO: the buffer gets lost here, is this on purpose?
+                edfos.getChannel()
+                     .write(externalData.removeFirst().getReadingFromStartBuffer());
                 edfos.flush();
               }
             }
@@ -300,7 +297,7 @@ public class TracingBackend {
               TracingBackend.symbolsToWrite.clear();
             }
 
-            fos.getChannel().write(b);
+            fos.getChannel().write(b.getReadingFromStartBuffer());
             fos.flush();
             b.rewind();
 
@@ -317,7 +314,7 @@ public class TracingBackend {
           throw new RuntimeException(e);
         }
       } else {
-        while (cont || TracingBackend.fullBuffers.size() > 0) {
+        while (cont || !TracingBackend.fullBuffers.isEmpty()) {
           ByteBuffer b;
 
           try {
@@ -336,7 +333,7 @@ public class TracingBackend {
             TracingBackend.symbolsToWrite.clear();
           }
 
-          if (b.remaining() > (Implementation.IMPL_THREAD.getSize() +
+          if (b.position() > (Implementation.IMPL_THREAD.getSize() +
               Implementation.IMPL_CURRENT_ACTIVITY.getSize()) && front != null) {
             front.sendTracingData(b);
           }
