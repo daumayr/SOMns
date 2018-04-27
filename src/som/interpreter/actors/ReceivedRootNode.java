@@ -13,9 +13,11 @@ import som.interpreter.SomLanguage;
 import som.interpreter.actors.SPromise.SResolver;
 import som.vm.VmSettings;
 import tools.concurrency.ActorExecutionTrace;
+import tools.concurrency.MedeorTrace;
 import tools.concurrency.nodes.TraceActorContext;
 import tools.concurrency.nodes.TraceActorContextNodeGen;
 import tools.debugger.WebDebugger;
+import tools.debugger.entities.DynamicScopeType;
 
 
 public abstract class ReceivedRootNode extends RootNode {
@@ -44,16 +46,42 @@ public abstract class ReceivedRootNode extends RootNode {
     this.sourceSection = sourceSection;
   }
 
-  protected abstract Object executeBody(VirtualFrame frame);
+  protected abstract Object executeBody(VirtualFrame frame, EventualMessage msg,
+      boolean haltOnResolver, boolean haltOnResolution);
 
   @Override
   public final Object execute(final VirtualFrame frame) {
+    EventualMessage msg = (EventualMessage) SArguments.rcvr(frame);
+
+    boolean haltOnResolver;
+    boolean haltOnResolution;
+
+    if (VmSettings.TRUFFLE_DEBUGGER_ENABLED) {
+      haltOnResolver = msg.getHaltOnResolver();
+      haltOnResolution = msg.getHaltOnResolution();
+
+      if (haltOnResolver) {
+        dbg.prepareSteppingAfterNextRootNode();
+      }
+    } else {
+      haltOnResolver = false;
+      haltOnResolution = false;
+    }
+
+    if (VmSettings.MEDEOR_TRACING) {
+      MedeorTrace.scopeStart(DynamicScopeType.TURN, msg.getMessageId(),
+          msg.getTargetSourceSection());
+    }
+
     try {
-      return executeBody(frame);
+      return executeBody(frame, msg, haltOnResolver, haltOnResolution);
     } finally {
       if (VmSettings.ACTOR_TRACING) {
-        EventualMessage msg = (EventualMessage) SArguments.rcvr(frame);
         ActorExecutionTrace.recordMessage(msgProfile.profile(msg), tracer);
+      }
+
+      if (VmSettings.MEDEOR_TRACING) {
+        MedeorTrace.scopeEnd(DynamicScopeType.TURN);
       }
     }
   }
