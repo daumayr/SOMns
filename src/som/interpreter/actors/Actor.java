@@ -268,6 +268,10 @@ public class Actor implements Activity {
         ObjectTransitionSafepoint.INSTANCE.unregister();
       }
 
+      if (VmSettings.ACTOR_TRACING && t.swapTracingBuffer) {
+        t.getBuffer().swapStorage();
+        t.swapTracingBuffer = false;
+      }
       t.currentlyExecutingActor = null;
     }
 
@@ -346,7 +350,7 @@ public class Actor implements Activity {
   public static final class ActorProcessingThread extends TracingActivityThread {
     public EventualMessage currentMessage;
 
-    protected Actor currentlyExecutingActor;
+    public Actor currentlyExecutingActor;
 
     protected ActorProcessingThread(final ForkJoinPool pool) {
       super(pool);
