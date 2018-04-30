@@ -365,6 +365,10 @@ public class Actor implements Activity {
       return currentMessage.getTarget();
     }
 
+    public Actor getCurrentActor() {
+      return currentlyExecutingActor;
+    }
+
     @Override
     protected void onTermination(final Throwable exception) {
       /*

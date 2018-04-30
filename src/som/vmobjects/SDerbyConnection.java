@@ -55,13 +55,15 @@ public class SDerbyConnection extends SObjectWithClass {
   public static class SDerbyPreparedStatement extends SObjectWithClass {
     @CompilationFinal public static SClass derbyPreparedStatementClass;
     private final PreparedStatement        statement;
+    private final int                      numParameters;
     protected final SDerbyConnection       connection;
 
     public SDerbyPreparedStatement(final PreparedStatement statement,
-        final SDerbyConnection connection) {
+        final SDerbyConnection connection, final int numParams) {
       super(derbyPreparedStatementClass, derbyPreparedStatementClass.getInstanceFactory());
       this.statement = statement;
       this.connection = connection;
+      this.numParameters = numParams;
     }
 
     public static void setSOMClass(final SClass cls) {
@@ -70,6 +72,10 @@ public class SDerbyConnection extends SObjectWithClass {
 
     public PreparedStatement getStatement() {
       return statement;
+    }
+
+    public int getNumParameters() {
+      return numParameters;
     }
 
     @Override

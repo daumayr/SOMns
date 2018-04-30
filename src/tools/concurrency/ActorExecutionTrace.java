@@ -4,7 +4,7 @@ import java.nio.charset.StandardCharsets;
 
 import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 
-import som.interpreter.actors.EventualMessage;
+import som.interpreter.actors.Actor.ActorProcessingThread;
 import tools.concurrency.TracingActors.TracingActor;
 import tools.concurrency.nodes.TraceActorContextNode;
 
@@ -36,8 +36,14 @@ public class ActorExecutionTrace {
     ((ActorTraceBuffer) t.getBuffer()).recordSystemCall(dataId, tracer);
   }
 
+  public static void recordSystemCall(final int dataId, final TraceActorContextNode tracer,
+      final TracingActivityThread t) {
+    ((ActorTraceBuffer) t.getBuffer()).recordSystemCall(dataId, tracer);
+  }
+
   public static void intSystemCall(final int i, final TraceActorContextNode tracer) {
-    TracingActor ta = (TracingActor) EventualMessage.getActorCurrentMessageIsExecutionOn();
+    ActorProcessingThread t = (ActorProcessingThread) getThread();
+    TracingActor ta = (TracingActor) t.getCurrentActor();
     int dataId = ta.getActorId();
     byte[] b = getExtDataByteBuffer(ta.getActorId(), dataId, Integer.BYTES);
     TraceBuffer.UNSAFE.putInt(
@@ -47,7 +53,8 @@ public class ActorExecutionTrace {
   }
 
   public static void longSystemCall(final long l, final TraceActorContextNode tracer) {
-    TracingActor ta = (TracingActor) EventualMessage.getActorCurrentMessageIsExecutionOn();
+    ActorProcessingThread t = (ActorProcessingThread) getThread();
+    TracingActor ta = (TracingActor) t.getCurrentActor();
     int dataId = ta.getActorId();
     byte[] b = getExtDataByteBuffer(ta.getActorId(), dataId, Long.BYTES);
     TraceBuffer.UNSAFE.putLong(
@@ -57,7 +64,8 @@ public class ActorExecutionTrace {
   }
 
   public static void doubleSystemCall(final double d, final TraceActorContextNode tracer) {
-    TracingActor ta = (TracingActor) EventualMessage.getActorCurrentMessageIsExecutionOn();
+    ActorProcessingThread t = (ActorProcessingThread) getThread();
+    TracingActor ta = (TracingActor) t.getCurrentActor();
     int dataId = ta.getActorId();
     byte[] b = getExtDataByteBuffer(ta.getActorId(), dataId, Double.BYTES);
     TraceBuffer.UNSAFE.putDouble(
@@ -67,7 +75,8 @@ public class ActorExecutionTrace {
   }
 
   public static void stringSystemCall(final String s, final TraceActorContextNode tracer) {
-    TracingActor ta = (TracingActor) EventualMessage.getActorCurrentMessageIsExecutionOn();
+    ActorProcessingThread t = (ActorProcessingThread) getThread();
+    TracingActor ta = (TracingActor) t.getCurrentActor();
     int dataId = ta.getActorId();
     byte[] b = getExtDataByteBuffer(ta.getActorId(), dataId, s.getBytes().length);
     // TODO: fix this, do this better

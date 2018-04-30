@@ -263,7 +263,7 @@ public class TracingBackend {
     assert b != null;
 
     synchronized (externalData) {
-      externalData.add(b);
+      externalData.add(extData);
     }
   }
 

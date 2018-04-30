@@ -10,6 +10,7 @@ import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.concurrent.ForkJoinPool;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
@@ -29,6 +30,7 @@ import som.interpreter.actors.Actor;
 import som.interpreter.actors.EventualMessage;
 import som.interpreter.actors.EventualMessage.DirectMessage;
 import som.interpreter.actors.EventualMessage.ExternalDirectMessage;
+import som.interpreter.actors.EventualSendNode;
 import som.interpreter.actors.ReceivedMessage;
 import som.interpreter.actors.SFarReference;
 import som.interpreter.nodes.MessageSendNode;
@@ -45,7 +47,6 @@ import som.vm.Symbols;
 import som.vm.VmSettings;
 import som.vm.constants.Classes;
 import som.vm.constants.Nil;
-import som.vmobjects.SAbstractObject;
 import som.vmobjects.SArray;
 import som.vmobjects.SArray.SImmutableArray;
 import som.vmobjects.SBlock;
@@ -56,14 +57,16 @@ import som.vmobjects.SInvokable;
 import som.vmobjects.SSymbol;
 import tools.concurrency.ActorExecutionTrace;
 import tools.concurrency.ByteBuffer;
+import tools.concurrency.TracingActors.TracingActor;
 
 
 public final class DerbyPrims {
-  private static final String DRIVER              = "org.apache.derby.jdbc.EmbeddedDriver";
-  private static final short  METHOD_EXEC_PREP_UC = 0;
-  private static final short  METHOD_EXEC_PREP_RS = 1;
-  private static final short  METHOD_EXEC_UC      = 2;
-  private static final short  METHOD_EXEC_RS      = 3;
+  private static final String  DRIVER              = "org.apache.derby.jdbc.EmbeddedDriver";
+  private static final short   METHOD_EXEC_PREP_UC = 0;
+  private static final short   METHOD_EXEC_PREP_RS = 1;
+  private static final short   METHOD_EXEC_UC      = 2;
+  private static final short   METHOD_EXEC_RS      = 3;
+  private static final SSymbol SELECTOR            = Symbols.symbolFor("value:");
 
   @GenerateNodeFactory
   @ImportStatic(DerbyPrims.class)
@@ -163,7 +166,7 @@ public final class DerbyPrims {
 
         return new SDerbyConnection(conn, vm.getActorPool(), vm.getLanguage());
       } catch (SQLException e) {
-        return dispatchHandler.executeDispatch(new Object[] {fail,
+        return dispatchHandler.executeDispatch(new Object[] {fail.getValue(),
             Symbols.symbolFor("SQLException" + e.getErrorCode()), e.getMessage()});
       }
     }
@@ -181,13 +184,15 @@ public final class DerbyPrims {
         final SBlock fail) {
       if (VmSettings.REPLAY) {
         return new SFarReference(conn.getDerbyActor(),
-            new SDerbyPreparedStatement(null, conn));
+            new SDerbyPreparedStatement(null, conn, 0));
       }
 
       PreparedStatement ps;
       try {
         ps = conn.getConnection().prepareStatement(query);
-        return new SFarReference(conn.getDerbyActor(), new SDerbyPreparedStatement(ps, conn));
+        return new SFarReference(conn.getDerbyActor(),
+            new SDerbyPreparedStatement(ps, conn,
+                ps.getParameterMetaData().getParameterCount()));
       } catch (SQLException e) {
         return dispatchHandler.executeDispatch(new Object[] {fail,
             Symbols.symbolFor("SQLException" + e.getErrorCode()), e.getMessage()});
@@ -196,7 +201,9 @@ public final class DerbyPrims {
   }
 
   @TruffleBoundary
-  protected static SArray processResults(final ResultSet rs) throws SQLException {
+  protected static SImmutableArray processResults(final Statement ps)
+      throws SQLException {
+    ResultSet rs = ps.getResultSet();
     int cols = rs.getMetaData().getColumnCount();
     ArrayList<SArray> results = new ArrayList<>();
     while (rs.next()) {
@@ -212,20 +219,16 @@ public final class DerbyPrims {
           storage[i] = Nil.nilObject;
         }
       }
-
-      // rs.getBytes(0);// get byte representation
-
-      // rs.updateBytes(0, new byte[1]);
       results.add(new SImmutableArray(storage, Classes.arrayClass));
     }
-
     return new SImmutableArray(results.toArray(new Object[0]), Classes.arrayClass);
   }
 
   @TruffleBoundary
-  protected static SArray processResultsandRecord(final ResultSet rs,
+  protected static SImmutableArray processResultsandSerialize(final Statement ps,
       final JsonArray jsonArray)
       throws SQLException {
+    ResultSet rs = ps.getResultSet();
     int cols = rs.getMetaData().getColumnCount();
     ArrayList<SArray> results = new ArrayList<>();
     ResultSetMetaData rsmd = rs.getMetaData();
@@ -281,7 +284,6 @@ public final class DerbyPrims {
             storage[i] = Nil.nilObject;
             break;
           default:
-            System.out.println("HERE");
             subArray.add(gson.toJson(rs.getObject(i + 1)));
             storage[i] = rs.getObject(i + 1);
         }
@@ -292,13 +294,68 @@ public final class DerbyPrims {
     return new SImmutableArray(results.toArray(new Object[0]), Classes.arrayClass);
   }
 
+  @TruffleBoundary
   private static RootCallTarget createOnReceiveCallTarget(final SSymbol selector,
       final SourceSection source, final SomLanguage lang) {
-
-    AbstractMessageSendNode invoke = MessageSendNode.createGeneric(selector, null, source);
-    ReceivedMessage receivedMsg = new ReceivedMessage(invoke, selector, lang);
-
+    AbstractMessageSendNode invoke = MessageSendNode.createGeneric(SELECTOR, null, source);
+    ReceivedMessage receivedMsg = new ReceivedMessage(invoke, SELECTOR, lang);
     return Truffle.getRuntime().createCallTarget(receivedMsg);
+  }
+
+  @TruffleBoundary
+  protected static final byte[] getBytes(final JsonArray jarr) {
+    return jarr.toString().getBytes(StandardCharsets.UTF_8);
+  }
+
+  @TruffleBoundary
+  protected static final int getUpdateCount(final Statement s) throws SQLException {
+    return s.getUpdateCount();
+  }
+
+  protected static final void sendExternalMessageRS(final Statement statement,
+      final TracingActor actor, final TracingActor targetActor, final SBlock callback,
+      final RootCallTarget rct, final ForkJoinPool pool,
+      final short method)
+      throws SQLException {
+    int dataId = actor.getDataId();
+    JsonArray jarr = new JsonArray();
+    SImmutableArray arg = processResultsandSerialize(statement, jarr);
+
+    byte[] data = getBytes(jarr);
+    ByteBuffer b =
+        ActorExecutionTrace.getExtDataByteBuffer(
+            actor.getActorId(), dataId,
+            data.length);
+    b.put(data);
+    ActorExecutionTrace.recordExternalData(b);
+
+    ExternalDirectMessage msg = new ExternalDirectMessage(targetActor, SELECTOR,
+        new Object[] {callback, arg},
+        actor, null, rct,
+        false, false, method, dataId);
+    targetActor.send(msg, pool);
+  }
+
+  protected static final void sendExternalMessageUC(final Statement statement,
+      final TracingActor actor, final TracingActor targetActor, final SBlock callback,
+      final RootCallTarget rct, final ForkJoinPool pool,
+      final short method)
+      throws SQLException {
+    int dataId = actor.getDataId();
+    int uc = getUpdateCount(statement);
+
+    ByteBuffer b =
+        ActorExecutionTrace.getExtDataByteBuffer(
+            actor.getActorId(), dataId,
+            4);
+    b.putInt(uc);
+    ActorExecutionTrace.recordExternalData(b);
+
+    ExternalDirectMessage msg = new ExternalDirectMessage(targetActor, SELECTOR,
+        new Object[] {callback, (long) uc},
+        actor, null, rct,
+        false, false, method, dataId);
+    targetActor.send(msg, pool);
   }
 
   @GenerateNodeFactory
@@ -307,96 +364,98 @@ public final class DerbyPrims {
   public abstract static class DerbyExecutePrepareStatementPrim
       extends QuaternaryExpressionNode {
     @Child protected BlockDispatchNode dispatchHandler = BlockDispatchNodeGen.create();
-    @Child protected AtPrim            arrayAt         = AtPrimFactory.create(null, null);
+    @Child protected EventualSendNode  msn;
+    @Child protected AtPrim            arrayAt         =
+        AtPrimFactory.create(null, null);
 
     @Specialization
-    @TruffleBoundary
     public final Object execute(final SDerbyPreparedStatement statement,
         final SArray parameters,
         final SBlock callback,
-        final Object fail) {
+        final SBlock fail) {
       return perform(statement, parameters, callback, fail,
           EventualMessage.getActorCurrentMessageIsExecutionOn());
     }
 
     @Specialization
-    @TruffleBoundary
     public final Object execute(final SDerbyPreparedStatement statement,
         final SFarReference parameters,
         final SFarReference callback,
-        final Object fail) {
-      return perform(statement, (SArray) parameters.getValue(), callback.getValue(), fail,
+        final SFarReference fail) {
+      return perform(statement, (SArray) parameters.getValue(), (SBlock) callback.getValue(),
+          (SBlock) fail.getValue(),
           callback.getActor());
+    }
+
+    @Specialization
+    public final Object execute(final SDerbyPreparedStatement statement,
+        final SFarReference parameters,
+        final SFarReference callback,
+        final SBlock fail) {
+      return perform(statement, (SArray) parameters.getValue(), (SBlock) callback.getValue(),
+          fail,
+          callback.getActor());
+    }
+
+    @TruffleBoundary
+    protected final boolean executeStatement(final PreparedStatement ps,
+        final SArray parameters,
+        final int numParameters) throws SQLException {
+      ps.clearParameters();
+
+      for (int i = 1; i <= numParameters; i++) {
+        Object o = arrayAt.execute(null, parameters, i);
+        ps.setObject(i, o);
+      }
+
+      return ps.execute();
     }
 
     public final Object perform(final SDerbyPreparedStatement statement,
         final SArray parameters,
-        final Object callback,
-        final Object fail,
+        final SBlock callback,
+        final SBlock fail,
         final Actor targetActor) {
       try {
         PreparedStatement prep = statement.getStatement();
-        prep.clearParameters();
+        boolean hasResultSet =
+            executeStatement(prep, parameters,
+                statement.getNumParameters());
 
-        for (int i = 1; i <= prep.getParameterMetaData().getParameterCount(); i++) {
-          Object o = arrayAt.execute(null, parameters, i);
-          prep.setObject(i, o);
-        }
-
-        boolean hasResultSet = prep.execute();
-
-        SSymbol selector = Symbols.symbolFor("value:");
-        SAbstractObject o = (SAbstractObject) callback;
         SInvokable s =
-            (SInvokable) o.getSOMClass().lookupMessage(selector, AccessModifier.PUBLIC);
-        RootCallTarget rct = createOnReceiveCallTarget(selector,
+            (SInvokable) Classes.blockClass.lookupMessage(SELECTOR, AccessModifier.PUBLIC);
+
+        RootCallTarget rct = createOnReceiveCallTarget(SELECTOR,
             s.getSourceSection(), statement.getSomLangauge());
 
-        EventualMessage msg;
-
-        Object arg;
         if (VmSettings.ACTOR_TRACING) {
-          int dataId = statement.getDerbyActor().getDataId();
           if (hasResultSet) {
-            JsonArray arr = new JsonArray();
-            arg = processResultsandRecord(prep.getResultSet(), arr);
-            byte[] data = arr.toString().getBytes(StandardCharsets.UTF_8);
-            ByteBuffer b =
-                ActorExecutionTrace.getExtDataByteBuffer(
-                    statement.getDerbyActor().getActorId(), dataId,
-                    data.length);
-            b.put(data);
-            ActorExecutionTrace.recordExternalData(b);
-            msg = new ExternalDirectMessage(targetActor, selector,
-                new Object[] {callback, arg},
-                statement.getDerbyActor(), null, rct,
-                false, false, METHOD_EXEC_PREP_RS, dataId);
+            sendExternalMessageRS(prep, (TracingActor) statement.getDerbyActor(),
+                (TracingActor) targetActor, callback, rct,
+                statement.getActorPool(), METHOD_EXEC_PREP_RS);
           } else {
-            arg = (long) prep.getUpdateCount();
-            ByteBuffer b =
-                ActorExecutionTrace.getExtDataByteBuffer(
-                    statement.getDerbyActor().getActorId(), dataId,
-                    4);
-            b.putInt(4);
-            ActorExecutionTrace.recordExternalData(b);
-            msg = new ExternalDirectMessage(targetActor, selector,
+            sendExternalMessageUC(prep, (TracingActor) statement.getDerbyActor(),
+                (TracingActor) targetActor, callback, rct,
+                statement.getActorPool(), METHOD_EXEC_PREP_UC);
+          }
+        } else {
+          if (hasResultSet) {
+            SImmutableArray arg = processResults(prep);
+            EventualMessage msg = new DirectMessage(targetActor, SELECTOR,
                 new Object[] {callback, arg},
                 statement.getDerbyActor(), null, rct,
-                false, false, METHOD_EXEC_PREP_UC, dataId);
+                false, false);
+            targetActor.send(msg, statement.getActorPool());
+          } else {
+            long arg = getUpdateCount(prep);
+            EventualMessage msg = new DirectMessage(targetActor, SELECTOR,
+                new Object[] {callback, arg},
+                statement.getDerbyActor(), null, rct,
+                false, false);
+            targetActor.send(msg, statement.getActorPool());
           }
-
-        } else {
-          arg =
-              hasResultSet ? processResults(prep.getResultSet())
-                  : (long) prep.getUpdateCount();
-          msg = new DirectMessage(targetActor, selector,
-              new Object[] {callback, arg},
-              statement.getDerbyActor(), null, rct,
-              false, false);
         }
-        targetActor.send(msg, statement.getActorPool());
       } catch (SQLException e) {
-
         dispatchHandler.executeDispatch(new Object[] {fail,
             Symbols.symbolFor("SQLException" + e.getErrorCode()), e.getMessage()});
       }
@@ -411,85 +470,66 @@ public final class DerbyPrims {
     @Child protected BlockDispatchNode dispatchHandler = BlockDispatchNodeGen.create();
 
     @Specialization
-    @TruffleBoundary
     public final Object execute(final SDerbyConnection connection,
         final String query,
         final SBlock callback,
-        final Object fail) {
+        final SBlock fail) {
       return perform(connection, query, callback, fail,
           EventualMessage.getActorCurrentMessageIsExecutionOn());
     }
 
     @Specialization
-    @TruffleBoundary
     public final Object execute(final SDerbyConnection connection,
         final String query,
         final SFarReference callback,
-        final Object fail) {
-      return perform(connection, query, callback.getValue(), fail,
+        final SFarReference fail) {
+      return perform(connection, query, (SBlock) callback.getValue(), (SBlock) fail.getValue(),
           callback.getActor());
     }
 
     public final Object perform(final SDerbyConnection connection,
         final String query,
-        final Object callback,
-        final Object fail,
+        final SBlock callback,
+        final SBlock fail,
         final Actor targetActor) {
       try {
         Statement statement = connection.getConnection().createStatement();
-
         boolean hasResultSet = statement.execute(query);
 
-        SSymbol selector = Symbols.symbolFor("value:");
-        SAbstractObject o = (SAbstractObject) callback;
         SInvokable s =
-            (SInvokable) o.getSOMClass().lookupMessage(selector, AccessModifier.PUBLIC);
-        RootCallTarget rct = createOnReceiveCallTarget(selector,
-            s.getSourceSection(), connection.getLanguage());
+            (SInvokable) Classes.blockClass.lookupMessage(SELECTOR, AccessModifier.PUBLIC);
+        RootCallTarget rct = createOnReceiveCallTarget(SELECTOR, s.getSourceSection(),
+            connection.getLanguage());
 
         EventualMessage msg;
 
-        Object arg;
         if (VmSettings.ACTOR_TRACING) {
-          int dataId = connection.getDerbyActor().getDataId();
           if (hasResultSet) {
-            JsonArray arr = new JsonArray();
-            arg = processResultsandRecord(statement.getResultSet(), arr);
-            byte[] data = arr.toString().getBytes(StandardCharsets.UTF_8);
-            ByteBuffer b =
-                ActorExecutionTrace.getExtDataByteBuffer(
-                    connection.getDerbyActor().getActorId(), dataId,
-                    data.length);
-            b.put(data);
-            ActorExecutionTrace.recordExternalData(b);
-            msg = new ExternalDirectMessage(targetActor, selector,
-                new Object[] {callback, arg},
-                connection.getDerbyActor(), null, rct,
-                false, false, METHOD_EXEC_RS, dataId);
+            sendExternalMessageRS(statement, (TracingActor) connection.getDerbyActor(),
+                (TracingActor) targetActor, callback,
+                rct, connection.getActorPool(), METHOD_EXEC_RS);
           } else {
-            arg = (long) statement.getUpdateCount();
-            ByteBuffer b =
-                ActorExecutionTrace.getExtDataByteBuffer(
-                    connection.getDerbyActor().getActorId(), dataId,
-                    4);
-            b.putInt(4);
-            ActorExecutionTrace.recordExternalData(b);
-            msg = new ExternalDirectMessage(targetActor, selector,
-                new Object[] {callback, arg},
-                connection.getDerbyActor(), null, rct,
-                false, false, METHOD_EXEC_UC, dataId);
+            sendExternalMessageRS(statement, (TracingActor) connection.getDerbyActor(),
+                (TracingActor) targetActor, callback,
+                rct, connection.getActorPool(), METHOD_EXEC_UC);
           }
         } else {
-          arg =
-              hasResultSet ? processResults(statement.getResultSet())
-                  : (long) statement.getUpdateCount();
-          msg = new DirectMessage(targetActor, selector,
-              new Object[] {callback, arg},
-              connection.getDerbyActor(), null, rct,
-              false, false);
+          if (hasResultSet) {
+            SImmutableArray arg = processResults(statement);
+            msg = new DirectMessage(targetActor, SELECTOR,
+                new Object[] {callback, arg},
+                connection.getDerbyActor(), null, rct,
+                false, false);
+            targetActor.send(msg, connection.getActorPool());
+          } else {
+            long arg = getUpdateCount(statement);
+            msg = new DirectMessage(targetActor, SELECTOR,
+                new Object[] {callback, arg},
+                connection.getDerbyActor(), null, rct,
+                false, false);
+            targetActor.send(msg, connection.getActorPool());
+          }
         }
-        targetActor.send(msg, connection.getActorPool());
-
       } catch (SQLException e) {
         dispatchHandler.executeDispatch(new Object[] {fail,
             Symbols.symbolFor("SQLException" + e.getErrorCode()), e.getMessage()});

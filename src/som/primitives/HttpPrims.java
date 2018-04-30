@@ -27,12 +27,13 @@ import som.vm.VmSettings;
 import som.vm.constants.Classes;
 import som.vm.constants.Nil;
 import som.vmobjects.SArray.SMutableArray;
+import som.vmobjects.SBlock;
 import som.vmobjects.SClass;
 import som.vmobjects.SHttpServer;
 import som.vmobjects.SHttpServer.SHttpExchange;
-import som.vmobjects.SObject;
 import som.vmobjects.SSymbol;
 import tools.concurrency.ActorExecutionTrace;
+import tools.concurrency.nodes.TraceActorContextNode;
 
 
 public final class HttpPrims {
@@ -115,7 +116,11 @@ public final class HttpPrims {
   @Primitive(primitive = "httpRegisterHandle:method:path:handler:")
   public abstract static class HttpRegisterHandler extends QuaternaryExpressionNode {
 
-    @Specialization
+    protected static final boolean isSBlockFarRef(final SFarReference ref) {
+      return ref.getValue() instanceof SBlock;
+    }
+
+    @Specialization(guards = "isSBlockFarRef(handler)")
     public final SHttpServer register(final SHttpServer server, final SSymbol method,
         final String path,
         final SFarReference handler) {
@@ -127,7 +132,7 @@ public final class HttpPrims {
     @Specialization
     public final SHttpServer register(final SHttpServer server, final SSymbol method,
         final String path,
-        final SObject handler) {
+        final SBlock handler) {
       server.registerHandler(path, method,
           new SFarReference(EventualMessage.getActorCurrentMessageIsExecutionOn(), handler));
       return server;
@@ -164,6 +169,8 @@ public final class HttpPrims {
   @ImportStatic(HttpPrims.class)
   @Primitive(primitive = "httpExchange:getRequestHeader:")
   public abstract static class HttpGetHeaderPrim extends BinaryExpressionNode {
+    @Child TraceActorContextNode tracer = new TraceActorContextNode();
+
     @Specialization
     public final Object getHeader(final SHttpExchange request, final String header) {
 
@@ -181,7 +188,7 @@ public final class HttpPrims {
 
       if (!request.getExchange().getRequestHeaders().containsKey(header)) {
         if (VmSettings.ACTOR_TRACING) {
-          ActorExecutionTrace.stringSystemCall("");
+          ActorExecutionTrace.stringSystemCall("", tracer);
         }
         return Nil.nilObject;
       }
@@ -190,7 +197,7 @@ public final class HttpPrims {
           request.getExchange().getRequestHeaders().get(header).toArray(new String[0]);
 
       if (VmSettings.ACTOR_TRACING) {
-        ActorExecutionTrace.stringSystemCall(String.join("ä", entries));
+        ActorExecutionTrace.stringSystemCall(String.join("ä", entries), tracer);
       }
 
       return new SMutableArray(entries, Classes.arrayClass);
@@ -201,6 +208,8 @@ public final class HttpPrims {
   @ImportStatic(HttpPrims.class)
   @Primitive(primitive = "httpExchangeGetRequestBody:")
   public abstract static class HttpGetBodyPrim extends UnaryExpressionNode {
+    @Child TraceActorContextNode tracer = new TraceActorContextNode();
+
     @Specialization
     public final String getBody(final SHttpExchange request) {
       if (VmSettings.REPLAY) {
@@ -210,7 +219,7 @@ public final class HttpPrims {
 
       String body = request.getBody();
       if (VmSettings.ACTOR_TRACING) {
-        ActorExecutionTrace.stringSystemCall(body);
+        ActorExecutionTrace.stringSystemCall(body, tracer);
       }
       return body;
     }
@@ -220,6 +229,8 @@ public final class HttpPrims {
   @ImportStatic(HttpPrims.class)
   @Primitive(primitive = "httpExchangeGetRequestQuery:")
   public abstract static class HttpGetDecodedUrlPrim extends UnaryExpressionNode {
+    @Child TraceActorContextNode tracer = new TraceActorContextNode();
+
     @Specialization
     public final String getUrl(final SHttpExchange request) {
       if (VmSettings.REPLAY) {
@@ -239,13 +250,14 @@ public final class HttpPrims {
       }
 
       if (VmSettings.ACTOR_TRACING) {
-        ActorExecutionTrace.stringSystemCall(result);
+        ActorExecutionTrace.stringSystemCall(result, tracer);
       }
       return result;
     }
 
     @TruffleBoundary
-    private String decodeURL(final String url) throws UnsupportedEncodingException {
+    protected static final String decodeURL(final String url)
+        throws UnsupportedEncodingException {
       return URLDecoder.decode(url, "utf-8");
     }
   }
@@ -283,6 +295,8 @@ public final class HttpPrims {
   @ImportStatic(HttpPrims.class)
   @Primitive(primitive = "httpExchange:getRequestCookie:")
   public abstract static class HttpGetCookiePrim extends BinaryExpressionNode {
+    @Child TraceActorContextNode tracer = new TraceActorContextNode();
+
     @Specialization
     public final String getCookie(final SHttpExchange request, final String key) {
       if (VmSettings.REPLAY) {
@@ -291,7 +305,7 @@ public final class HttpPrims {
 
       String result = request.getCookie(key);
       if (VmSettings.ACTOR_TRACING) {
-        ActorExecutionTrace.stringSystemCall(result);
+        ActorExecutionTrace.stringSystemCall(result, tracer);
       }
       return result;
     }

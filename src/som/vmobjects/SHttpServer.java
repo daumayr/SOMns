@@ -39,6 +39,7 @@ import som.vm.VmSettings;
 import tools.concurrency.ActorExecutionTrace;
 import tools.concurrency.ByteBuffer;
 import tools.concurrency.SExternalDataSource;
+import tools.concurrency.TracingActors.TracingActor;
 
 
 public class SHttpServer extends SObjectWithClass implements SExternalDataSource {
@@ -70,7 +71,7 @@ public class SHttpServer extends SObjectWithClass implements SExternalDataSource
     this.root = new PathNode();
     if (!VmSettings.REPLAY) {
       this.server = HttpServer.create(address, 0);
-      this.server.setExecutor(null);
+      this.server.setExecutor(actorPool);
       server.createContext("/", new HttpHandler() {
         @Override
         public void handle(final HttpExchange exchange) throws IOException {
@@ -97,7 +98,6 @@ public class SHttpServer extends SObjectWithClass implements SExternalDataSource
     if (p.contains(":")) {
       p = p.substring(0, p.indexOf(":"));
     }
-    System.out.println(p);
 
     DynamicHttpHandler dyn = new DynamicHttpHandler(path);
     dyn.addHandler(method, handler);
@@ -109,7 +109,7 @@ public class SHttpServer extends SObjectWithClass implements SExternalDataSource
     this.root.registerHandler(path, new StaticHttpHandler(root, path));
   }
 
-  class DynamicHttpHandler implements com.sun.net.httpserver.HttpHandler {
+  final class DynamicHttpHandler implements com.sun.net.httpserver.HttpHandler {
     final String                                     path;
     final HashMap<SSymbol, ArrayList<SFarReference>> handlers;
 
@@ -172,34 +172,33 @@ public class SHttpServer extends SObjectWithClass implements SExternalDataSource
           RootCallTarget rct = createOnReceiveCallTarget(selector,
               s.getSourceSection(), language);
 
-          DirectMessage msg;
           if (VmSettings.ACTOR_TRACING) {
-            int dataId = serverActor.getDataId();
+            int dataId = ((TracingActor) serverActor).getDataId();
 
             // serialize request method and path
+
             byte[] data = String
                                 .join("ä", exch.getRequestURI().getPath().toString(),
                                     exchange.getExchange().getRequestMethod())
                                 .getBytes(StandardCharsets.UTF_8);
             ByteBuffer b =
-                ActorExecutionTrace.getExtDataByteBuffer(serverActor.getActorId(), dataId,
+                ActorExecutionTrace.getExtDataByteBuffer(
+                    ((TracingActor) serverActor).getActorId(), dataId,
                     data.length);
             b.put(data);
             ActorExecutionTrace.recordExternalData(b);
 
-            msg = new ExternalDirectMessage(obj.getActor(), selector,
-                new Object[] {obj.getValue(), exchange}, serverActor, null, rct,
+            ExternalDirectMessage msg = new ExternalDirectMessage(obj.getActor(), selector,
+                new Object[] {(SBlock) obj.getValue(), exchange}, serverActor, null, rct,
                 false, false, (short) 0, dataId);
+            obj.getActor().send(msg, actorPool);
           } else {
-            msg = new DirectMessage(obj.getActor(), selector,
-                new Object[] {obj.getValue(), exchange}, serverActor, null, rct,
+            DirectMessage msg = new DirectMessage(obj.getActor(), selector,
+                new Object[] {(SBlock) obj.getValue(), exchange}, serverActor, null, rct,
                 false, false);
+            obj.getActor().send(msg, actorPool);
           }
-
-          obj.getActor().send(msg, actorPool);
         }
-      } else {
-        System.out.println("ignored Request");
       }
     }
   }
@@ -234,7 +233,6 @@ public class SHttpServer extends SObjectWithClass implements SExternalDataSource
         String response = "404 (Not Found)\n";
         t.sendResponseHeaders(404, response.length());
         OutputStream os = t.getResponseBody();
-        System.out.println("" + uri);
         os.write(response.getBytes());
         os.close();
       } else {
@@ -351,7 +349,7 @@ public class SHttpServer extends SObjectWithClass implements SExternalDataSource
       }
     }
 
-    public void accept(final HttpExchange exchange) {
+    public final void accept(final HttpExchange exchange) {
       if (handler == null) {
         try {
           if (!VmSettings.REPLAY) {
@@ -376,13 +374,24 @@ public class SHttpServer extends SObjectWithClass implements SExternalDataSource
     }
   }
 
+  protected final class FinalHashMap<T> extends HashMap<String, T> {
+
+    // Othewise extremely deep inlining of find method, causing errors
+    @TruffleBoundary
+    @Override
+    public T get(final Object key) {
+      return super.get(key);
+    }
+
+  }
+
   public class SHttpExchange extends SObjectWithClass {
     private final HttpExchange exchange;
 
     // Request
-    private final String            requestBody;
-    private HashMap<String, String> requestCookies;
-    private HashMap<String, Object> attributes;
+    private final String         requestBody;
+    private FinalHashMap<String> requestCookies;
+    private FinalHashMap<Object> attributes;
 
     // Response Fields
     private long    status = 200;
@@ -394,7 +403,7 @@ public class SHttpServer extends SObjectWithClass implements SExternalDataSource
       this.requestBody = new BufferedReader(
           new InputStreamReader(exchange.getRequestBody())).lines().collect(
               Collectors.joining("\n"));
-      this.attributes = new HashMap<>();
+      this.attributes = new FinalHashMap<>();
     }
 
     @Override
@@ -421,7 +430,7 @@ public class SHttpServer extends SObjectWithClass implements SExternalDataSource
     @TruffleBoundary
     public String getCookie(final String key) {
       if (requestCookies == null) {
-        requestCookies = new HashMap<>();
+        requestCookies = new FinalHashMap<>();
         for (String entry : exchange.getRequestHeaders().get("Cookie")) {
 
           for (String e : entry.split(";")) {

@@ -24,6 +24,8 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
   public long erroredPromises;
 
   protected final TraceBuffer traceBuffer;
+  protected ByteBuffer[]      externalData;
+  protected int               extIndex = 0;
 
   protected SteppingStrategy steppingStrategy;
 
@@ -47,10 +49,12 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
       threadId = threadIdGen.getAndIncrement();
       traceBuffer = TraceBuffer.create(threadId);
       nextEntityId = 1 + (threadId << TraceData.ENTITY_ID_BITS);
+      externalData = new ByteBuffer[1000];
     } else {
       threadId = 0;
       nextEntityId = 0;
       traceBuffer = null;
+      externalData = null;
     }
     setName(getClass().getSimpleName() + "-" + threadId);
   }
@@ -108,6 +112,16 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
     return traceBuffer;
   }
 
+  public final void addExternalData(final ByteBuffer data) {
+    externalData[extIndex] = data;
+    extIndex++;
+    if (extIndex == 1000) {
+      TracingBackend.addExternalData(externalData);
+      externalData = new ByteBuffer[1000];
+      extIndex = 0;
+    }
+  }
+
   @Override
   protected void onStart() {
     super.onStart();
@@ -119,7 +133,8 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
   @Override
   protected void onTermination(final Throwable exception) {
     if (VmSettings.ACTOR_TRACING) {
-      traceBuffer.returnBuffer(null);
+      traceBuffer.returnBuffer();
+      TracingBackend.addExternalData(externalData);
       TracingBackend.unregisterThread(this);
     }
     super.onTermination(exception);
