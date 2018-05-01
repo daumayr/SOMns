@@ -5,6 +5,7 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -41,11 +42,28 @@ public final class TraceParser {
 
   private final TraceRecord[] parseTable;
 
+  public byte[] getExternalData(final int actorId, final int dataId) {
+    return null;
+  }
+
+  public boolean getBooleanSysCallResult() {
+    return false;
+  }
+
+  public int getIntegerSysCallResult() {
+    return 0;
+  }
+
+  public String getStringSysCallResult() {
+    return null;
+  }
+
   public static synchronized Queue<MessageRecord> getExpectedMessages(final int replayId) {
     if (parser == null) {
       parser = new TraceParser();
       parser.parseTrace();
     }
+
     return parser.actors.get(replayId).getExpectedMessages();
   }
 
@@ -61,6 +79,7 @@ public final class TraceParser {
   private TraceParser() {
     assert VmSettings.REPLAY;
     this.parseTable = createParseTable();
+    b.order(ByteOrder.LITTLE_ENDIAN);
   }
 
   private TraceRecord[] createParseTable() {
@@ -83,6 +102,8 @@ public final class TraceParser {
     int resolver = 0;
     int currentActor = 0;
     int ordering = 0;
+    int dataId;
+    long startTime = System.currentTimeMillis();
     ArrayList<MessageRecord> contextMessages = null;
 
     Output.println("Parsing Trace ...");
@@ -105,13 +126,13 @@ public final class TraceParser {
 
         final int start = b.position();
         final byte type = b.get();
-        final int numbytes = ((type >> 4) & 3);
+        final int numbytes = ((type >> 4) & 3) + 1;
+        boolean external = (type & 8) != 0;
         TraceRecord recordType = parseTable[type & 7];
 
         switch (recordType) {
           case ACTOR_CREATION: {
             int newActorId = getId(numbytes);
-
             if (newActorId == 0) {
               assert !readMainActor : "There should be only one main actor.";
               readMainActor = true;
@@ -123,15 +144,20 @@ public final class TraceParser {
                 actors.put(currentActor, new ActorNode(currentActor));
               }
 
-              ActorNode node = actors.containsKey(newActorId)
-                  ? actors.get(newActorId)
-                  : new ActorNode(newActorId);
+              ActorNode node;
+              if (actors.containsKey(newActorId)) {
+                node = actors.get(newActorId);
+              } else {
+                node = new ActorNode(newActorId);
+                actors.put(newActorId, node);
+              }
+
               node.mailboxNo = ordering;
               actors.get(currentActor).addChild(node);
             }
             parsedActors++;
 
-            assert b.position() == start + (numbytes + 2);
+            assert b.position() == start + (numbytes + 1);
             break;
           }
           case ACTOR_CONTEXT:
@@ -144,14 +170,15 @@ public final class TraceParser {
              * context can then be reclaimed by GC
              */
 
-            ordering = Short.toUnsignedInt(b.getShort());
+            ordering = b.getInt();
             currentActor = getId(numbytes);
+
             if (!actors.containsKey(currentActor)) {
               actors.put(currentActor, new ActorNode(currentActor));
             }
 
             contextMessages = null;
-            assert b.position() == start + (numbytes + 4);
+            assert b.position() == start + (numbytes + 4 + 1);
             break;
           case MESSAGE:
             parsedMessages++;
@@ -162,8 +189,14 @@ public final class TraceParser {
 
             sender = getId(numbytes);
 
+            if (external) {
+              System.out.println("EXTERNAL");
+              b.getShort();
+              b.getInt();
+            }
+
             contextMessages.add(new MessageRecord(sender));
-            assert b.position() == start + (numbytes + 2);
+            assert b.position() == start + (numbytes + 1);
             break;
           case PROMISE_MESSAGE:
             parsedMessages++;
@@ -173,10 +206,18 @@ public final class TraceParser {
             }
             sender = getId(numbytes);
             resolver = getId(numbytes);
+
+            if (external) {
+              System.out.println("EXTERNAL");
+              b.getShort();
+              b.getInt();
+            }
+
             contextMessages.add(new PromiseMessageRecord(sender, resolver));
-            assert b.position() == start + 1 + 2 * (numbytes + 1);
+            assert b.position() == start + 1 + 2 * (numbytes);
             break;
           case SYSTEM_CALL:
+            dataId = b.getInt();
             break;
           default:
             assert false;
@@ -189,19 +230,20 @@ public final class TraceParser {
       throw new RuntimeException(e);
     }
 
+    long end = System.currentTimeMillis();
     Output.println("Trace with " + parsedMessages + " Messages and " + parsedActors
-        + " Actors sucessfully parsed!");
+        + " Actors sucessfully parsed in " + (end - startTime) + "ms !");
   }
 
   private int getId(final int numbytes) {
     switch (numbytes) {
-      case 0:
-        return 0 | b.get();
       case 1:
-        return 0 | b.getShort();
+        return 0 | b.get();
       case 2:
-        return (b.get() << 16) | b.getShort();
+        return 0 | b.getShort();
       case 3:
+        return (b.get() << 16) | b.getShort();
+      case 4:
         return b.getInt();
     }
     assert false : "should not happen";
@@ -269,11 +311,11 @@ public final class TraceParser {
         assert !bucket2.containsKey(order);
         bucket1.put(order, mr);
 
-        if (bucket1.size() == 0xFFFF) {
+        if (bucket1.size() == 0xFFFFFF) {
           // Bucket 1 is full, switch
-          assert bucket2.size() < 0xEFFF;
+          assert bucket2.size() < 0xEFFFFF;
 
-          for (int i = 0; i < 0xFFFF; i++) {
+          for (int i = 0; i < 0xFFFFFF; i++) {
             expectedMessages.addAll(bucket1.get(i));
           }
 
@@ -286,8 +328,9 @@ public final class TraceParser {
     }
 
     public Queue<MessageRecord> getExpectedMessages() {
-      assert bucket1.size() < 0xFFFF && bucket2.isEmpty();
-      for (int i = 0; i < 0xFFFF; i++) {
+      assert bucket1.size() < 0xFFFFFF;
+      assert bucket2.isEmpty();
+      for (int i = 0; i < 0xFFFFFF; i++) {
         if (bucket1.containsKey(i)) {
           expectedMessages.addAll(bucket1.get(i));
         } else {

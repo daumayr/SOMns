@@ -110,7 +110,7 @@ public class ActorExecutionTrace {
 
     public void recordActorContext(final TracingActor actor,
         final TraceActorContextNode tracer) {
-      ensureSufficientSpace(7, null); // null, because we don't need to write actor context,
+      ensureSufficientSpace(9, null); // null, because we don't need to write actor context,
                                       // and going to do it ourselves
       currentActor = actor;
       tracer.trace(actor);

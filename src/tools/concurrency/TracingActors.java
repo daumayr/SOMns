@@ -24,7 +24,7 @@ public class TracingActors {
   public static class TracingActor extends Actor {
     private static final AtomicInteger IdGen = new AtomicInteger(0);
     protected final int                actorId;
-    protected short                    ordering;
+    protected int                      ordering;
     protected int                      nextDataID;
 
     /**
@@ -51,7 +51,7 @@ public class TracingActors {
       return actorId;
     }
 
-    public short getOrdering() {
+    public int getOrdering() {
       return ordering;
     }
 
@@ -60,7 +60,9 @@ public class TracingActors {
     }
 
     public void incrementOrdering() {
+
       ordering++;
+
     }
 
     public boolean isStepToNextTurn() {
