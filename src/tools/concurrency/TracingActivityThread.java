@@ -49,7 +49,7 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
       threadId = threadIdGen.getAndIncrement();
       traceBuffer = TraceBuffer.create(threadId);
       nextEntityId = 1 + (threadId << TraceData.ENTITY_ID_BITS);
-      externalData = new Object[1000];
+      externalData = new Object[500];
     } else {
       threadId = 0;
       nextEntityId = 0;
@@ -115,9 +115,9 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
   public final void addExternalData(final Object data) {
     externalData[extIndex] = data;
     extIndex++;
-    if (extIndex == 1000) {
+    if (extIndex == 500) {
       TracingBackend.addExternalData(externalData);
-      externalData = new Object[1000];
+      externalData = new Object[500];
       extIndex = 0;
     }
   }

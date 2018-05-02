@@ -2,9 +2,8 @@ package tools.concurrency;
 
 import java.util.Arrays;
 
-import com.google.gson.JsonArray;
-
 import som.interpreter.actors.Actor.ActorProcessingThread;
+import som.vmobjects.SArray.SImmutableArray;
 import tools.concurrency.TracingActors.TracingActor;
 import tools.concurrency.nodes.TraceActorContextNode;
 
@@ -145,14 +144,14 @@ public class ActorExecutionTrace {
     }
   }
 
-  public static class JsonArrayWrapper {
-    final JsonArray ja;
-    final int       actorId;
-    final int       dataId;
+  public static class TwoDArrayWrapper {
+    final SImmutableArray ia;
+    final int             actorId;
+    final int             dataId;
 
-    public JsonArrayWrapper(final JsonArray ja, final int actorId, final int dataId) {
+    public TwoDArrayWrapper(final SImmutableArray ia, final int actorId, final int dataId) {
       super();
-      this.ja = ja;
+      this.ia = ia;
       this.actorId = actorId;
       this.dataId = dataId;
     }

@@ -1,6 +1,5 @@
 package som.primitives;
 
-import java.sql.Array;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -56,7 +55,7 @@ import som.vmobjects.SDerbyConnection.SDerbyPreparedStatement;
 import som.vmobjects.SInvokable;
 import som.vmobjects.SSymbol;
 import tools.concurrency.ActorExecutionTrace;
-import tools.concurrency.ActorExecutionTrace.JsonArrayWrapper;
+import tools.concurrency.ActorExecutionTrace.TwoDArrayWrapper;
 import tools.concurrency.TracingActors.TracingActor;
 
 
@@ -206,17 +205,47 @@ public final class DerbyPrims {
     ResultSet rs = ps.getResultSet();
     int cols = rs.getMetaData().getColumnCount();
     ArrayList<SArray> results = new ArrayList<>();
+    ResultSetMetaData rsmd = rs.getMetaData();
     while (rs.next()) {
       Object[] storage = new Object[cols];
       for (int i = 0; i < cols; i++) {
-        storage[i] = rs.getObject(i + 1);
-        if (storage[i] instanceof Array) {
-          Array a = (Array) storage[i];
-          storage[i] = new SImmutableArray(a.getArray(), Classes.arrayClass);
-        } else if (storage[i] instanceof Integer) {
-          storage[i] = ((Integer) storage[i]).longValue();
-        } else if (storage[i] == null) {
-          storage[i] = Nil.nilObject;
+        switch (rsmd.getColumnType(i + 1)) {
+          case java.sql.Types.ARRAY:
+            storage[i] = new SImmutableArray(rs.getArray(i + 1), Classes.arrayClass);
+            break;
+          case java.sql.Types.BIGINT:
+          case java.sql.Types.INTEGER:
+          case java.sql.Types.TINYINT:
+          case java.sql.Types.SMALLINT:
+            storage[i] = rs.getLong(i + 1);
+            break;
+          case java.sql.Types.BOOLEAN:
+            storage[i] = rs.getBoolean(i + 1);
+            break;
+          case java.sql.Types.BLOB:
+            storage[i] = rs.getBlob(i + 1);
+            break;
+          case java.sql.Types.DOUBLE:
+          case java.sql.Types.FLOAT:
+            storage[i] = rs.getDouble(i + 1);
+            break;
+          case java.sql.Types.NVARCHAR:
+            storage[i] = rs.getNString(i + 1);
+            break;
+          case java.sql.Types.VARCHAR:
+            storage[i] = rs.getString(i + 1);
+            break;
+          case java.sql.Types.DATE:
+            storage[i] = rs.getDate(i + 1).getTime();
+            break;
+          case java.sql.Types.TIMESTAMP:
+            storage[i] = rs.getTimestamp(i + 1).getTime();
+            break;
+          case java.sql.Types.NULL:
+            storage[i] = Nil.nilObject;
+            break;
+          default:
+            storage[i] = rs.getObject(i + 1);
         }
       }
       results.add(new SImmutableArray(storage, Classes.arrayClass));
@@ -318,14 +347,12 @@ public final class DerbyPrims {
       final short method)
       throws SQLException {
     int dataId = actor.getDataId();
-    JsonArray jarr = new JsonArray();
-    SImmutableArray arg = processResultsandSerialize(statement, jarr);
-
-    JsonArrayWrapper jaw = new JsonArrayWrapper(jarr, actor.getActorId(), dataId);
+    SImmutableArray arg = processResults(statement);
+    TwoDArrayWrapper taw = new TwoDArrayWrapper(arg, actor.getActorId(), dataId);
     // String s = jarrToString(jarr);
 
     // StringWrapper sw = new StringWrapper(s, actor.getActorId(), dataId);
-    ((ActorProcessingThread) Thread.currentThread()).addExternalData(jaw);
+    ((ActorProcessingThread) Thread.currentThread()).addExternalData(taw);
 
     ExternalDirectMessage msg = new ExternalDirectMessage(targetActor, SELECTOR,
         new Object[] {callback, arg},
