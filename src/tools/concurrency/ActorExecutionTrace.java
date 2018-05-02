@@ -1,8 +1,6 @@
 package tools.concurrency;
-import java.util.Arrays;
-import java.nio.charset.StandardCharsets;
 
-import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
+import java.util.Arrays;
 
 import som.interpreter.actors.Actor.ActorProcessingThread;
 import tools.concurrency.TracingActors.TracingActor;
@@ -49,7 +47,7 @@ public class ActorExecutionTrace {
     TraceBuffer.UNSAFE.putInt(
         b, TraceBuffer.BYTE_ARR_BASE_OFFSET + EXT_DATA_HEADER_SIZE, i);
     recordSystemCall(dataId, tracer);
-    TracingBackend.addExternalData(b);
+    t.addExternalData(b);
   }
 
   public static void longSystemCall(final long l, final TraceActorContextNode tracer) {
@@ -60,7 +58,7 @@ public class ActorExecutionTrace {
     TraceBuffer.UNSAFE.putLong(
         b, TraceBuffer.BYTE_ARR_BASE_OFFSET + EXT_DATA_HEADER_SIZE, l);
     recordSystemCall(dataId, tracer);
-    TracingBackend.addExternalData(b);
+    t.addExternalData(b);
   }
 
   public static void doubleSystemCall(final double d, final TraceActorContextNode tracer) {
@@ -71,18 +69,18 @@ public class ActorExecutionTrace {
     TraceBuffer.UNSAFE.putDouble(
         b, TraceBuffer.BYTE_ARR_BASE_OFFSET + EXT_DATA_HEADER_SIZE, d);
     recordSystemCall(dataId, tracer);
-    TracingBackend.addExternalData(b);
+    t.addExternalData(b);
   }
 
   public static void stringSystemCall(final String s, final TraceActorContextNode tracer) {
     ActorProcessingThread t = (ActorProcessingThread) getThread();
     TracingActor ta = (TracingActor) t.getCurrentActor();
     int dataId = ta.getActorId();
-    byte[] b = getExtDataByteBuffer(ta.getActorId(), dataId, s.getBytes().length);
-    // TODO: fix this, do this better
-    // b.put(s.getBytes());
     recordSystemCall(dataId, tracer);
-    TracingBackend.addExternalData(b);
+    StringWrapper sw =
+        new StringWrapper(s, ta.getActorId(), dataId);
+
+    t.addExternalData(sw);
   }
 
   private static final int EXT_DATA_HEADER_SIZE = 3 * 4;
@@ -90,6 +88,16 @@ public class ActorExecutionTrace {
   public static byte[] getExtDataByteBuffer(final int actor, final int dataId,
       final int size) {
     byte[] buffer = new byte[size + EXT_DATA_HEADER_SIZE];
+    Arrays.fill(buffer, (byte) -1);
+    TraceBuffer.UNSAFE.putInt(buffer, TraceBuffer.BYTE_ARR_BASE_OFFSET, actor);
+    TraceBuffer.UNSAFE.putInt(buffer, TraceBuffer.BYTE_ARR_BASE_OFFSET + 4, dataId);
+    TraceBuffer.UNSAFE.putInt(buffer, TraceBuffer.BYTE_ARR_BASE_OFFSET + 8, size);
+    return buffer;
+  }
+
+  public static byte[] getExtDataHeader(final int actor, final int dataId,
+      final int size) {
+    byte[] buffer = new byte[EXT_DATA_HEADER_SIZE];
     Arrays.fill(buffer, (byte) -1);
     TraceBuffer.UNSAFE.putInt(buffer, TraceBuffer.BYTE_ARR_BASE_OFFSET, actor);
     TraceBuffer.UNSAFE.putInt(buffer, TraceBuffer.BYTE_ARR_BASE_OFFSET + 4, dataId);
@@ -119,6 +127,19 @@ public class ActorExecutionTrace {
     public void recordSystemCall(final int dataId, final TraceActorContextNode tracer) {
       ensureSufficientSpace(5, tracer);
       putByteInt(SYSTEM_CALL, dataId);
+    }
+  }
+
+  public static class StringWrapper {
+    final String s;
+    final int    actorId;
+    final int    dataId;
+
+    public StringWrapper(final String s, final int actorId, final int dataId) {
+      super();
+      this.s = s;
+      this.actorId = actorId;
+      this.dataId = dataId;
     }
   }
 }

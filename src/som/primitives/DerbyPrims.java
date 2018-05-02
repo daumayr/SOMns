@@ -1,6 +1,5 @@
 package som.primitives;
 
-import java.nio.charset.StandardCharsets;
 import java.sql.Array;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -27,6 +26,7 @@ import bd.primitives.Primitive;
 import som.compiler.AccessModifier;
 import som.interpreter.SomLanguage;
 import som.interpreter.actors.Actor;
+import som.interpreter.actors.Actor.ActorProcessingThread;
 import som.interpreter.actors.EventualMessage;
 import som.interpreter.actors.EventualMessage.DirectMessage;
 import som.interpreter.actors.EventualMessage.ExternalDirectMessage;
@@ -56,7 +56,7 @@ import som.vmobjects.SDerbyConnection.SDerbyPreparedStatement;
 import som.vmobjects.SInvokable;
 import som.vmobjects.SSymbol;
 import tools.concurrency.ActorExecutionTrace;
-import tools.concurrency.ByteBuffer;
+import tools.concurrency.ActorExecutionTrace.StringWrapper;
 import tools.concurrency.TracingActors.TracingActor;
 
 
@@ -303,13 +303,13 @@ public final class DerbyPrims {
   }
 
   @TruffleBoundary
-  protected static final byte[] getBytes(final JsonArray jarr) {
-    return jarr.toString().getBytes(StandardCharsets.UTF_8);
+  protected static final int getUpdateCount(final Statement s) throws SQLException {
+    return s.getUpdateCount();
   }
 
   @TruffleBoundary
-  protected static final int getUpdateCount(final Statement s) throws SQLException {
-    return s.getUpdateCount();
+  protected static final String jarrToString(final JsonArray jarr) {
+    return jarr.toString();
   }
 
   protected static final void sendExternalMessageRS(final Statement statement,
@@ -321,13 +321,9 @@ public final class DerbyPrims {
     JsonArray jarr = new JsonArray();
     SImmutableArray arg = processResultsandSerialize(statement, jarr);
 
-    byte[] data = getBytes(jarr);
-    ByteBuffer b =
-        ActorExecutionTrace.getExtDataByteBuffer(
-            actor.getActorId(), dataId,
-            data.length);
-    b.put(data);
-    ActorExecutionTrace.recordExternalData(b);
+    String s = jarrToString(jarr);
+    StringWrapper sw = new StringWrapper(s, actor.getActorId(), dataId);
+    ((ActorProcessingThread) Thread.currentThread()).addExternalData(sw);
 
     ExternalDirectMessage msg = new ExternalDirectMessage(targetActor, SELECTOR,
         new Object[] {callback, arg},
@@ -344,12 +340,17 @@ public final class DerbyPrims {
     int dataId = actor.getDataId();
     int uc = getUpdateCount(statement);
 
-    ByteBuffer b =
+    byte[] b =
         ActorExecutionTrace.getExtDataByteBuffer(
             actor.getActorId(), dataId,
             4);
-    b.putInt(uc);
-    ActorExecutionTrace.recordExternalData(b);
+
+    b[12] = (byte) (uc >> 24);
+    b[13] = (byte) ((uc >> 16) & 0xFF);
+    b[14] = (byte) ((uc >> 8) & 0xFF);
+    b[15] = (byte) (uc & 0xFF);
+
+    ((ActorProcessingThread) Thread.currentThread()).addExternalData(b);
 
     ExternalDirectMessage msg = new ExternalDirectMessage(targetActor, SELECTOR,
         new Object[] {callback, (long) uc},

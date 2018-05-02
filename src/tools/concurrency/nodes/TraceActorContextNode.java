@@ -13,16 +13,13 @@ public final class TraceActorContextNode extends TraceNode {
     ActorTraceBuffer buffer = getCurrentBuffer();
     int pos = buffer.position();
 
-    int idLen = id.execute(storage, pos + 5, actor.getActorId());
+    int idLen = id.execute(buffer, pos + 5, actor.getActorId());
     int idBit = (idLen - 1) << 4;
 
-    storage.putByteAt(pos, (byte) (ActorExecutionTrace.ACTOR_CONTEXT | idBit));
-    storage.putIntAt(pos + 1, actor.getOrdering());
+    buffer.putByteAt(pos, (byte) (ActorExecutionTrace.ACTOR_CONTEXT | idBit));
+    buffer.putIntAt(pos + 1, actor.getOrdering());
 
-    storage.position(pos + idLen + 1 + 4);
+    buffer.position(pos + idLen + 1 + 4);
     actor.incrementOrdering();
-  }
-
-    buffer.position(pos + idLen + 1 + 2);
   }
 }

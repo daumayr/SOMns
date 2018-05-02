@@ -34,6 +34,7 @@ import som.interpreter.actors.Actor.ActorProcessingThread;
 import som.vm.NotYetImplementedException;
 import som.vm.VmSettings;
 import som.vmobjects.SSymbol;
+import tools.concurrency.ActorExecutionTrace.StringWrapper;
 import tools.debugger.FrontendConnector;
 import tools.debugger.entities.Implementation;
 
@@ -79,7 +80,7 @@ public class TracingBackend {
   private static final ArrayBlockingQueue<BufferAndLimit> fullBuffers =
       new ArrayBlockingQueue<>(BUFFER_POOL_SIZE);
 
-  private static final LinkedList<byte[]> externalData = new LinkedList<>();
+  private static final LinkedList<Object[]> externalData = new LinkedList<>();
 
   // contains symbols that need to be written to file/sent to debugger,
   // e.g. actor type, message type
@@ -259,11 +260,11 @@ public class TracingBackend {
   }
 
   @TruffleBoundary
-  public static final void addExternalData(final byte[] b) {
+  public static final void addExternalData(final Object[] b) {
     assert b != null;
 
     synchronized (externalData) {
-      externalData.add(extData);
+      externalData.add(b);
     }
   }
 
@@ -337,12 +338,31 @@ public class TracingBackend {
     private void writeExternalData(final FileOutputStream edfos) throws IOException {
       synchronized (externalData) {
         while (!externalData.isEmpty()) {
-          byte[] data = externalData.removeFirst();
+          Object[] o = externalData.removeFirst();
+          for (Object oo : o) {
+            if (oo == null) {
+              continue;
+            }
+            if (oo instanceof StringWrapper) {
+              StringWrapper sw = (StringWrapper) oo;
+              byte[] bytes = sw.s.getBytes();
+              byte[] header =
+                  ActorExecutionTrace.getExtDataHeader(sw.actorId, sw.dataId, bytes.length);
 
-          externalBytes += data.length;
-          if (edfos != null) {
-            edfos.getChannel().write(ByteBuffer.wrap(data));
-            edfos.flush();
+              if (edfos != null) {
+                edfos.getChannel().write(ByteBuffer.wrap(header));
+                edfos.getChannel().write(ByteBuffer.wrap(bytes));
+                edfos.flush();
+              }
+              externalBytes += bytes.length + 12;
+            } else {
+              byte[] data = (byte[]) oo;
+              externalBytes += data.length;
+              if (edfos != null) {
+                edfos.getChannel().write(ByteBuffer.wrap(data));
+                edfos.flush();
+              }
+            }
           }
         }
       }

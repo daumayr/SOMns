@@ -8,7 +8,6 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.concurrent.ForkJoinPool;
@@ -27,6 +26,7 @@ import com.sun.net.httpserver.HttpServer;
 import som.compiler.AccessModifier;
 import som.interpreter.SomLanguage;
 import som.interpreter.actors.Actor;
+import som.interpreter.actors.Actor.ActorProcessingThread;
 import som.interpreter.actors.EventualMessage;
 import som.interpreter.actors.EventualMessage.DirectMessage;
 import som.interpreter.actors.EventualMessage.ExternalDirectMessage;
@@ -36,8 +36,7 @@ import som.interpreter.nodes.MessageSendNode;
 import som.interpreter.nodes.MessageSendNode.AbstractMessageSendNode;
 import som.vm.Symbols;
 import som.vm.VmSettings;
-import tools.concurrency.ActorExecutionTrace;
-import tools.concurrency.ByteBuffer;
+import tools.concurrency.ActorExecutionTrace.StringWrapper;
 import tools.concurrency.SExternalDataSource;
 import tools.concurrency.TracingActors.TracingActor;
 
@@ -177,16 +176,12 @@ public class SHttpServer extends SObjectWithClass implements SExternalDataSource
 
             // serialize request method and path
 
-            byte[] data = String
-                                .join("ä", exch.getRequestURI().getPath().toString(),
-                                    exchange.getExchange().getRequestMethod())
-                                .getBytes(StandardCharsets.UTF_8);
-            ByteBuffer b =
-                ActorExecutionTrace.getExtDataByteBuffer(
-                    ((TracingActor) serverActor).getActorId(), dataId,
-                    data.length);
-            b.put(data);
-            ActorExecutionTrace.recordExternalData(b);
+            String ss = String
+                              .join("ä", exch.getRequestURI().getPath().toString(),
+                                  exchange.getExchange().getRequestMethod());
+            StringWrapper sw =
+                new StringWrapper(ss, ((TracingActor) serverActor).getActorId(), dataId);
+            ((ActorProcessingThread) Thread.currentThread()).addExternalData(sw);
 
             ExternalDirectMessage msg = new ExternalDirectMessage(obj.getActor(), selector,
                 new Object[] {(SBlock) obj.getValue(), exchange}, serverActor, null, rct,
