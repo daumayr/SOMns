@@ -56,7 +56,7 @@ import som.vmobjects.SDerbyConnection.SDerbyPreparedStatement;
 import som.vmobjects.SInvokable;
 import som.vmobjects.SSymbol;
 import tools.concurrency.ActorExecutionTrace;
-import tools.concurrency.ActorExecutionTrace.StringWrapper;
+import tools.concurrency.ActorExecutionTrace.JsonArrayWrapper;
 import tools.concurrency.TracingActors.TracingActor;
 
 
@@ -321,9 +321,11 @@ public final class DerbyPrims {
     JsonArray jarr = new JsonArray();
     SImmutableArray arg = processResultsandSerialize(statement, jarr);
 
-    String s = jarrToString(jarr);
-    StringWrapper sw = new StringWrapper(s, actor.getActorId(), dataId);
-    ((ActorProcessingThread) Thread.currentThread()).addExternalData(sw);
+    JsonArrayWrapper jaw = new JsonArrayWrapper(jarr, actor.getActorId(), dataId);
+    // String s = jarrToString(jarr);
+
+    // StringWrapper sw = new StringWrapper(s, actor.getActorId(), dataId);
+    ((ActorProcessingThread) Thread.currentThread()).addExternalData(jaw);
 
     ExternalDirectMessage msg = new ExternalDirectMessage(targetActor, SELECTOR,
         new Object[] {callback, arg},

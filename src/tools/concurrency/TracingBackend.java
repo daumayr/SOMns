@@ -34,6 +34,7 @@ import som.interpreter.actors.Actor.ActorProcessingThread;
 import som.vm.NotYetImplementedException;
 import som.vm.VmSettings;
 import som.vmobjects.SSymbol;
+import tools.concurrency.ActorExecutionTrace.JsonArrayWrapper;
 import tools.concurrency.ActorExecutionTrace.StringWrapper;
 import tools.debugger.FrontendConnector;
 import tools.debugger.entities.Implementation;
@@ -355,7 +356,20 @@ public class TracingBackend {
                 edfos.flush();
               }
               externalBytes += bytes.length + 12;
+            } else if (oo instanceof JsonArrayWrapper) {
+              JsonArrayWrapper jaw = (JsonArrayWrapper) oo;
+              byte[] bytes = jaw.ja.toString().getBytes();
+              byte[] header =
+                  ActorExecutionTrace.getExtDataHeader(jaw.actorId, jaw.dataId, bytes.length);
+
+              if (edfos != null) {
+                edfos.getChannel().write(ByteBuffer.wrap(header));
+                edfos.getChannel().write(ByteBuffer.wrap(bytes));
+                edfos.flush();
+              }
+              externalBytes += bytes.length + 12;
             } else {
+
               byte[] data = (byte[]) oo;
               externalBytes += data.length;
               if (edfos != null) {
