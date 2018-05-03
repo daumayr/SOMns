@@ -20,6 +20,5 @@ public final class TraceActorContextNode extends TraceNode {
     buffer.putIntAt(pos + 1, actor.getOrdering());
 
     buffer.position(pos + idLen + 1 + 4);
-    actor.incrementOrdering();
   }
 }

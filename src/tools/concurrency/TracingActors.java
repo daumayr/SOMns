@@ -52,17 +52,11 @@ public class TracingActors {
     }
 
     public int getOrdering() {
-      return ordering;
+      return ordering++;
     }
 
     public synchronized int getDataId() {
       return nextDataID++;
-    }
-
-    public void incrementOrdering() {
-
-      ordering++;
-
     }
 
     public boolean isStepToNextTurn() {
@@ -196,7 +190,15 @@ public class TracingActors {
           n += a.mailboxExtension != null ? a.mailboxExtension.size() : 0;
 
           Output.println(
-              a.getName() + " [" + a.getId() + "] has " + n + " unexpected messages");
+              a.getName() + " [" + a.getId() + "] has " + n + " unexpected messages:");
+          if (a.firstMessage != null) {
+            printMsg(a.firstMessage);
+            if (a.mailboxExtension != null) {
+              for (EventualMessage em : a.mailboxExtension) {
+                printMsg(em);
+              }
+            }
+          }
         }
       }
       return result;
