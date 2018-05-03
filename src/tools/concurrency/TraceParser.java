@@ -112,6 +112,8 @@ public final class TraceParser {
         FileChannel channel = fis.getChannel()) {
       channel.read(b);
       b.flip(); // prepare for reading from buffer
+      ActorNode current = null;
+
       while (channel.position() < channel.size() || b.remaining() > 0) {
         // read from file if buffer is empty
         if (!b.hasRemaining()) {
@@ -131,7 +133,7 @@ public final class TraceParser {
         TraceRecord recordType = parseTable[type & 7];
 
         switch (recordType) {
-          case ACTOR_CREATION: {
+          case ACTOR_CREATION:
             int newActorId = getId(numbytes);
             if (newActorId == 0) {
               assert !readMainActor : "There should be only one main actor.";
@@ -159,7 +161,7 @@ public final class TraceParser {
 
             assert b.position() == start + (numbytes + 1);
             break;
-          }
+
           case ACTOR_CONTEXT:
             /*
              * make two buckets, one for the current 256 contexs, and one for those that we
@@ -170,22 +172,30 @@ public final class TraceParser {
              * context can then be reclaimed by GC
              */
 
-            ordering = b.getInt();
+            ordering = Short.toUnsignedInt(b.getShort());
             currentActor = getId(numbytes);
+
+            if (ordering == 1850 && currentActor == 132) {
+              System.out.println("Found cluster on " + currentActor);
+            }
 
             if (!actors.containsKey(currentActor)) {
               actors.put(currentActor, new ActorNode(currentActor));
             }
-
+            current = actors.get(currentActor);
+            assert current != null;
             contextMessages = null;
-            assert b.position() == start + (numbytes + 4 + 1);
+            assert b.position() == start + (numbytes + 2 + 1);
             break;
           case MESSAGE:
             parsedMessages++;
             if (contextMessages == null) {
               contextMessages = new ArrayList<>();
-              actors.get(currentActor).addMessageRecords(contextMessages, ordering);
+              assert actors.containsKey(currentActor);
+              assert current != null;
+              current.addMessageRecords(contextMessages, ordering);
             }
+            assert contextMessages != null;
 
             sender = getId(numbytes);
 
@@ -202,7 +212,8 @@ public final class TraceParser {
             parsedMessages++;
             if (contextMessages == null) {
               contextMessages = new ArrayList<>();
-              actors.get(currentActor).addMessageRecords(contextMessages, ordering);
+              assert actors.containsKey(currentActor);
+              current.addMessageRecords(contextMessages, ordering);
             }
             sender = getId(numbytes);
             resolver = getId(numbytes);
@@ -262,6 +273,8 @@ public final class TraceParser {
     HashMap<Integer, ArrayList<MessageRecord>> bucket1          = new HashMap<>();
     HashMap<Integer, ArrayList<MessageRecord>> bucket2          = new HashMap<>();
     Queue<MessageRecord>                       expectedMessages = new java.util.LinkedList<>();
+    int                                        max              = 0;
+    int                                        max2             = 0;
 
     ActorNode(final long actorId) {
       super();
@@ -303,40 +316,61 @@ public final class TraceParser {
     }
 
     private void addMessageRecords(final ArrayList<MessageRecord> mr, final int order) {
+      assert mr != null;
+      // assert !bucket1.containsKey(order);
+      // bucket1.put(order, mr);
+
       if (bucket1.containsKey(order)) {
         // use bucket two
         assert !bucket2.containsKey(order);
         bucket2.put(order, mr);
+        max2 = Math.max(max2, order);
       } else {
         assert !bucket2.containsKey(order);
         bucket1.put(order, mr);
-
-        if (bucket1.size() == 0xFFFFFF) {
+        max = Math.max(max, order);
+        if (max == 0xFFFF) {
           // Bucket 1 is full, switch
-          assert bucket2.size() < 0xEFFFFF;
-
-          for (int i = 0; i < 0xFFFFFF; i++) {
+          assert max2 < 0xEFFF;
+          for (int i = 0; i <= max; i++) {
+            if (!bucket1.containsKey(i)) {
+              continue;
+            }
             expectedMessages.addAll(bucket1.get(i));
           }
-
           bucket1.clear();
           HashMap<Integer, ArrayList<MessageRecord>> temp = bucket1;
           bucket1 = bucket2;
           bucket2 = temp;
+          max = max2;
+          max2 = 0;
         }
       }
+
     }
 
     public Queue<MessageRecord> getExpectedMessages() {
-      assert bucket1.size() < 0xFFFFFF;
+
+      assert bucket1.size() < 0xFFFF;
       assert bucket2.isEmpty();
-      for (int i = 0; i < 0xFFFFFF; i++) {
+      for (int i = 0; i <= max; i++) {
         if (bucket1.containsKey(i)) {
           expectedMessages.addAll(bucket1.get(i));
         } else {
-          break;
+          continue;
         }
       }
+
+      /*
+       * for (int i = 0; i <= max; i++) {
+       * if (!bucket1.containsKey(i)) {
+       * // System.out.println("Cluster " + i + " Missing in Actor" + this.actorId);
+       * continue;
+       * }
+       * expectedMessages.addAll(bucket1.get(i));
+       * }
+       */
+
       return expectedMessages;
     }
 
