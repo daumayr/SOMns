@@ -309,7 +309,7 @@ public class Actor implements Activity {
           // complete execution after all messages are processed
           actor.isExecuting = false;
           if (VmSettings.ACTOR_TRACING) {
-            ((TracingActor) actor).incrementOrdering();
+            // ((TracingActor) actor).incrementOrdering();
           } else if (VmSettings.MEDEOR_TRACING) {
             MedeorTrace.clearCurrentActivity(actor);
           }
@@ -362,6 +362,10 @@ public class Actor implements Activity {
         return null;
       }
       return currentMessage.getTarget();
+    }
+
+    public Actor getCurrentActor() {
+      return currentlyExecutingActor;
     }
 
     @Override

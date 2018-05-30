@@ -14,7 +14,6 @@ import java.lang.management.MemoryUsage;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -33,7 +32,13 @@ import som.Output;
 import som.interpreter.actors.Actor.ActorProcessingThread;
 import som.vm.NotYetImplementedException;
 import som.vm.VmSettings;
+import som.vm.constants.Classes;
+import som.vm.constants.Nil;
+import som.vmobjects.SArray;
+import som.vmobjects.SArray.SImmutableArray;
 import som.vmobjects.SSymbol;
+import tools.concurrency.ActorExecutionTrace.StringWrapper;
+import tools.concurrency.ActorExecutionTrace.TwoDArrayWrapper;
 import tools.debugger.FrontendConnector;
 import tools.debugger.entities.Implementation;
 
@@ -64,11 +69,11 @@ import tools.debugger.entities.Implementation;
  * done on the buffer for all access.
  */
 public class TracingBackend {
-  private static final int BUFFER_POOL_SIZE = VmSettings.NUM_THREADS * 4;
-  public static final int  BUFFER_SIZE      = 4096 * 128;
+  private static final int BUFFER_POOL_SIZE = VmSettings.NUM_THREADS * 16;
+  public static final int  BUFFER_SIZE      = 4096 * 256;
 
   private static final int TRACE_TIMEOUT = 500;
-  private static final int POLL_TIMEOUT  = 100;
+  private static final int POLL_TIMEOUT  = 50;
 
   private static final List<java.lang.management.GarbageCollectorMXBean> gcbeans =
       ManagementFactory.getGarbageCollectorMXBeans();
@@ -79,11 +84,13 @@ public class TracingBackend {
   private static final ArrayBlockingQueue<BufferAndLimit> fullBuffers =
       new ArrayBlockingQueue<>(BUFFER_POOL_SIZE);
 
-  private static final LinkedList<byte[]> externalData = new LinkedList<>();
+  private static final java.util.concurrent.ConcurrentLinkedQueue<Object[]> externalData =
+      new java.util.concurrent.ConcurrentLinkedQueue<Object[]>();
 
   // contains symbols that need to be written to file/sent to debugger,
   // e.g. actor type, message type
-  private static final ArrayList<SSymbol> symbolsToWrite = new ArrayList<>();
+  private static final ArrayList<SSymbol> symbolsToWrite =
+      new ArrayList<>();
 
   private static FrontendConnector front = null;
 
@@ -259,12 +266,9 @@ public class TracingBackend {
   }
 
   @TruffleBoundary
-  public static final void addExternalData(final byte[] b) {
+  public static final void addExternalData(final Object[] b) {
     assert b != null;
-
-    synchronized (externalData) {
-      externalData.add(b);
-    }
+    externalData.add(b);
   }
 
   public static void startTracingBackend() {
@@ -335,17 +339,104 @@ public class TracingBackend {
     }
 
     private void writeExternalData(final FileOutputStream edfos) throws IOException {
-      synchronized (externalData) {
-        while (!externalData.isEmpty()) {
-          byte[] data = externalData.removeFirst();
+      while (!externalData.isEmpty()) {
+        Object[] o = externalData.poll();
+        for (Object oo : o) {
+          if (oo == null) {
+            continue;
+          }
+          if (oo instanceof StringWrapper) {
+            StringWrapper sw = (StringWrapper) oo;
+            byte[] bytes = sw.s.getBytes();
+            byte[] header =
+                ActorExecutionTrace.getExtDataHeader(sw.actorId, sw.dataId, bytes.length);
 
-          externalBytes += data.length;
-          if (edfos != null) {
-            edfos.getChannel().write(ByteBuffer.wrap(data));
-            edfos.flush();
+            if (edfos != null) {
+              edfos.getChannel().write(ByteBuffer.wrap(header));
+              edfos.getChannel().write(ByteBuffer.wrap(bytes));
+              edfos.flush();
+            }
+            externalBytes += bytes.length + 12;
+          } else if (oo instanceof TwoDArrayWrapper) {
+            writeArray((TwoDArrayWrapper) oo, edfos);
+          } else {
+
+            byte[] data = (byte[]) oo;
+            externalBytes += data.length;
+            if (edfos != null) {
+              edfos.getChannel().write(ByteBuffer.wrap(data));
+              edfos.flush();
+            }
           }
         }
       }
+    }
+
+    private void writeArray(final TwoDArrayWrapper aw, final FileOutputStream edfos)
+        throws IOException {
+      SImmutableArray sia = aw.ia;
+
+      Object[] outer = sia.getObjectStorage(SArray.ObjectStorageType);
+      byte[][][] bouter = new byte[outer.length][][];
+      byte[] endRow = {ENDROW};
+      int numBytes = 0;
+      for (int i = 0; i < outer.length; i++) {
+        Object o = outer[i];
+        SImmutableArray ia = (SImmutableArray) o;
+        Object[] inner = ia.getObjectStorage(SArray.ObjectStorageType);
+        byte[][] binner = new byte[inner.length + 1][];
+        for (int j = 0; j < inner.length; j++) {
+          Object oo = inner[j];
+          byte[] bytes = null;
+          if (oo instanceof String) {
+            byte[] sbytes = ((String) oo).getBytes();
+            bytes = new byte[5 + sbytes.length];
+            TraceBuffer.UNSAFE.putByte(bytes, TraceBuffer.BYTE_ARR_BASE_OFFSET, STRING);
+            TraceBuffer.UNSAFE.putInt(bytes, TraceBuffer.BYTE_ARR_BASE_OFFSET + 1,
+                sbytes.length);
+            System.arraycopy(sbytes, 0, bytes, 5, sbytes.length);
+          } else if (oo instanceof Long) {
+            bytes = new byte[9];
+            TraceBuffer.UNSAFE.putByte(bytes, TraceBuffer.BYTE_ARR_BASE_OFFSET, LONG);
+            TraceBuffer.UNSAFE.putLong(bytes, TraceBuffer.BYTE_ARR_BASE_OFFSET + 1, (Long) oo);
+          } else if (oo instanceof Double) {
+            bytes = new byte[9];
+            TraceBuffer.UNSAFE.putByte(bytes, TraceBuffer.BYTE_ARR_BASE_OFFSET, DOUBLE);
+            TraceBuffer.UNSAFE.putDouble(bytes, TraceBuffer.BYTE_ARR_BASE_OFFSET + 1,
+                (Double) oo);
+          } else if (oo instanceof Boolean) {
+            bytes = new byte[1];
+            TraceBuffer.UNSAFE.putByte(bytes, TraceBuffer.BYTE_ARR_BASE_OFFSET + 1,
+                ((Boolean) oo ? TRUE : FALSE));
+          } else if (oo == Nil.nilObject) {
+            bytes = new byte[1];
+            TraceBuffer.UNSAFE.putByte(bytes, TraceBuffer.BYTE_ARR_BASE_OFFSET, NULL);
+          } else {
+            throw new UnsupportedOperationException("Unexpected DataType");
+          }
+
+          numBytes += bytes.length;
+          binner[j] = bytes;
+        }
+        binner[binner.length - 1] = endRow;
+        numBytes++;
+        bouter[i] = binner;
+      }
+
+      byte[] header =
+          ActorExecutionTrace.getExtDataHeader(aw.actorId, aw.dataId, numBytes);
+
+      if (edfos != null) {
+        edfos.getChannel().write(ByteBuffer.wrap(header));
+        for (byte[][] baa : bouter) {
+          for (byte[] ba : baa) {
+            edfos.getChannel().write(ByteBuffer.wrap(ba));
+          }
+        }
+
+        edfos.flush();
+      }
+      externalBytes += numBytes + 12;
     }
 
     private void writeSymbols(final BufferedWriter bw) throws IOException {
@@ -378,15 +469,16 @@ public class TracingBackend {
     private void processTraceData(final FileOutputStream traceDataStream,
         final FileOutputStream externalDataStream,
         final BufferedWriter symbolStream) throws IOException {
-      while (cont || !TracingBackend.fullBuffers.isEmpty()) {
+      while (cont || !TracingBackend.fullBuffers.isEmpty()
+          || !TracingBackend.externalData.isEmpty()) {
+        writeExternalData(externalDataStream);
+
         BufferAndLimit b = tryToObtainBuffer();
         if (b == null) {
           continue;
         }
 
-        writeExternalData(externalDataStream);
         writeSymbols(symbolStream);
-
         if (front != null) {
           front.sendTracingData(b.getReadingFromStartBuffer());
         }
@@ -420,5 +512,42 @@ public class TracingBackend {
         throw new RuntimeException(e);
       }
     }
+  }
+
+  static final byte STRING = 0;
+  static final byte LONG   = 1;
+  static final byte DOUBLE = 2;
+  static final byte TRUE   = 3;
+  static final byte FALSE  = 4;
+  static final byte NULL   = 5;
+  static final byte ENDROW = 6;
+
+  public static SArray parseArray(final ByteBuffer bb) {
+    List<SArray> rows = new ArrayList<>();
+    List<Object> currentRow = new ArrayList<>();
+
+    while (bb.hasRemaining()) {
+      byte type = bb.get();
+      if (type == STRING) {
+        int len = bb.getInt();
+        byte[] bytes = new byte[len];
+        bb.get(bytes);
+        currentRow.add(new String(bytes));
+      } else if (type == LONG) {
+        currentRow.add(bb.getLong());
+      } else if (type == DOUBLE) {
+        currentRow.add(bb.getDouble());
+      } else if (type == TRUE) {
+        currentRow.add(true);
+      } else if (type == FALSE) {
+        currentRow.add(false);
+      } else if (type == NULL) {
+        currentRow.add(Nil.nilObject);
+      } else if (type == ENDROW) {
+        rows.add(new SImmutableArray(currentRow.toArray(), Classes.arrayClass));
+        currentRow.clear();
+      }
+    }
+    return new SImmutableArray(rows.toArray(), Classes.arrayClass);
   }
 }

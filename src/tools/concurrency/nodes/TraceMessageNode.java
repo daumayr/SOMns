@@ -61,7 +61,7 @@ public abstract class TraceMessageNode extends TraceNode {
     storage.putByteAt(pos,
         (byte) (ActorExecutionTrace.EXTERNAL_BIT | ActorExecutionTrace.MESSAGE | idBit));
 
-    pos += idLen;
+    pos += idLen + 1;
 
     storage.putShortAt(pos, msg.getMethod());
     pos += 2;
@@ -120,7 +120,7 @@ public abstract class TraceMessageNode extends TraceNode {
         (byte) (ActorExecutionTrace.EXTERNAL_BIT | ActorExecutionTrace.PROMISE_MESSAGE
             | idBit));
 
-    pos += idLen + idLen;
+    pos += idLen + idLen + 1;
 
     storage.putShortAt(pos, method);
     pos += 2;

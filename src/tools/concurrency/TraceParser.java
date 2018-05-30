@@ -5,6 +5,7 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -12,8 +13,10 @@ import java.util.HashMap;
 import java.util.Queue;
 
 import som.Output;
+import som.interpreter.actors.EventualMessage;
 import som.vm.VmSettings;
 import som.vmobjects.SSymbol;
+import tools.concurrency.TracingActors.ReplayActor;
 
 
 public final class TraceParser {
@@ -29,10 +32,11 @@ public final class TraceParser {
     SYSTEM_CALL
   }
 
-  private final HashMap<Short, SSymbol>     symbolMapping = new HashMap<>();
-  private ByteBuffer                        b             =
+  private final HashMap<Short, SSymbol>     symbolMapping    = new HashMap<>();
+  private ByteBuffer                        b                =
       ByteBuffer.allocate(TracingBackend.BUFFER_SIZE);
-  private final HashMap<Integer, ActorNode> actors        = new HashMap<>();
+  private final HashMap<Integer, ActorNode> actors           = new HashMap<>();
+  private final HashMap<Long, Long>         externalDataDict = new HashMap<>();
 
   private long parsedMessages = 0;
   private long parsedActors   = 0;
@@ -41,11 +45,43 @@ public final class TraceParser {
 
   private final TraceRecord[] parseTable;
 
+  public static ByteBuffer getExternalData(final int actorId, final int dataId) {
+    long key = (((long) actorId) << 32) | dataId;
+    long pos = parser.externalDataDict.get(key);
+    System.out.println("GET for " + actorId + " and " + dataId + " at: " + pos);
+    return parser.readExternalData(pos);
+  }
+
+  public static int getIntegerSysCallResult() {
+    ReplayActor ra = (ReplayActor) EventualMessage.getActorCurrentMessageIsExecutionOn();
+    ByteBuffer bb = getExternalData(ra.getActorId(), ra.getDataId());
+    return bb.getInt();
+  }
+
+  public static long getLongSysCallResult() {
+    ReplayActor ra = (ReplayActor) EventualMessage.getActorCurrentMessageIsExecutionOn();
+    ByteBuffer bb = getExternalData(ra.getActorId(), ra.getDataId());
+    return bb.getLong();
+  }
+
+  public static double getDoubleSysCallResult() {
+    ReplayActor ra = (ReplayActor) EventualMessage.getActorCurrentMessageIsExecutionOn();
+    ByteBuffer bb = getExternalData(ra.getActorId(), ra.getDataId());
+    return bb.getDouble();
+  }
+
+  public static String getStringSysCallResult() {
+    ReplayActor ra = (ReplayActor) EventualMessage.getActorCurrentMessageIsExecutionOn();
+    ByteBuffer bb = getExternalData(ra.getActorId(), ra.getDataId());
+    return new String(bb.array());
+  }
+
   public static synchronized Queue<MessageRecord> getExpectedMessages(final int replayId) {
     if (parser == null) {
       parser = new TraceParser();
       parser.parseTrace();
     }
+
     return parser.actors.get(replayId).getExpectedMessages();
   }
 
@@ -61,6 +97,7 @@ public final class TraceParser {
   private TraceParser() {
     assert VmSettings.REPLAY;
     this.parseTable = createParseTable();
+    b.order(ByteOrder.LITTLE_ENDIAN);
   }
 
   private TraceRecord[] createParseTable() {
@@ -83,6 +120,9 @@ public final class TraceParser {
     int resolver = 0;
     int currentActor = 0;
     int ordering = 0;
+    short method = 0;
+    int dataId = 0;
+    long startTime = System.currentTimeMillis();
     ArrayList<MessageRecord> contextMessages = null;
 
     Output.println("Parsing Trace ...");
@@ -91,6 +131,8 @@ public final class TraceParser {
         FileChannel channel = fis.getChannel()) {
       channel.read(b);
       b.flip(); // prepare for reading from buffer
+      ActorNode current = null;
+
       while (channel.position() < channel.size() || b.remaining() > 0) {
         // read from file if buffer is empty
         if (!b.hasRemaining()) {
@@ -105,13 +147,12 @@ public final class TraceParser {
 
         final int start = b.position();
         final byte type = b.get();
-        final int numbytes = ((type >> 4) & 3);
+        final int numbytes = ((type >> 4) & 3) + 1;
+        boolean external = (type & 8) != 0;
         TraceRecord recordType = parseTable[type & 7];
-
         switch (recordType) {
-          case ACTOR_CREATION: {
+          case ACTOR_CREATION:
             int newActorId = getId(numbytes);
-
             if (newActorId == 0) {
               assert !readMainActor : "There should be only one main actor.";
               readMainActor = true;
@@ -123,17 +164,22 @@ public final class TraceParser {
                 actors.put(currentActor, new ActorNode(currentActor));
               }
 
-              ActorNode node = actors.containsKey(newActorId)
-                  ? actors.get(newActorId)
-                  : new ActorNode(newActorId);
+              ActorNode node;
+              if (actors.containsKey(newActorId)) {
+                node = actors.get(newActorId);
+              } else {
+                node = new ActorNode(newActorId);
+                actors.put(newActorId, node);
+              }
+
               node.mailboxNo = ordering;
               actors.get(currentActor).addChild(node);
             }
             parsedActors++;
 
-            assert b.position() == start + (numbytes + 2);
+            assert b.position() == start + (numbytes + 1);
             break;
-          }
+
           case ACTOR_CONTEXT:
             /*
              * make two buckets, one for the current 256 contexs, and one for those that we
@@ -146,37 +192,52 @@ public final class TraceParser {
 
             ordering = Short.toUnsignedInt(b.getShort());
             currentActor = getId(numbytes);
+
             if (!actors.containsKey(currentActor)) {
               actors.put(currentActor, new ActorNode(currentActor));
             }
 
-            contextMessages = null;
-            assert b.position() == start + (numbytes + 4);
+            current = actors.get(currentActor);
+            assert current != null;
+            contextMessages = new ArrayList<>();
+            current.addMessageRecords(contextMessages, ordering);
+            assert b.position() == start + (numbytes + 2 + 1);
             break;
           case MESSAGE:
             parsedMessages++;
-            if (contextMessages == null) {
-              contextMessages = new ArrayList<>();
-              actors.get(currentActor).addMessageRecords(contextMessages, ordering);
-            }
-
+            assert contextMessages != null;
             sender = getId(numbytes);
 
-            contextMessages.add(new MessageRecord(sender));
-            assert b.position() == start + (numbytes + 2);
+            if (external) {
+              method = b.getShort();
+              dataId = b.getInt();
+              contextMessages.add(new ExternalMessageRecord(sender, method, dataId));
+              assert b.position() == start + (numbytes + 1 + 6);
+            } else {
+              contextMessages.add(new MessageRecord(sender));
+              assert b.position() == start + (numbytes + 1);
+            }
             break;
           case PROMISE_MESSAGE:
             parsedMessages++;
-            if (contextMessages == null) {
-              contextMessages = new ArrayList<>();
-              actors.get(currentActor).addMessageRecords(contextMessages, ordering);
-            }
             sender = getId(numbytes);
             resolver = getId(numbytes);
-            contextMessages.add(new PromiseMessageRecord(sender, resolver));
-            assert b.position() == start + 1 + 2 * (numbytes + 1);
+
+            if (external) {
+              method = b.getShort();
+              dataId = b.getInt();
+              contextMessages.add(
+                  new ExternalPromiseMessageRecord(sender, resolver, method, dataId));
+              assert b.position() == start + 1 + 6 + 2 * (numbytes);
+            } else {
+              contextMessages.add(new PromiseMessageRecord(sender, resolver));
+              assert b.position() == start + 1 + 2 * (numbytes);
+            }
+
             break;
           case SYSTEM_CALL:
+            dataId = b.getInt();
+            System.out.println("" + current.actorId + " : " + dataId);
             break;
           default:
             assert false;
@@ -189,19 +250,83 @@ public final class TraceParser {
       throw new RuntimeException(e);
     }
 
+    parseExternalData();
+
+    long end = System.currentTimeMillis();
     Output.println("Trace with " + parsedMessages + " Messages and " + parsedActors
-        + " Actors sucessfully parsed!");
+        + " Actors sucessfully parsed in " + (end - startTime) + "ms !");
+  }
+
+  private ByteBuffer readExternalData(final long position) {
+    File traceFile = new File(VmSettings.TRACE_FILE + ".dat");
+    try (FileInputStream fis = new FileInputStream(traceFile);
+        FileChannel channel = fis.getChannel()) {
+
+      ByteBuffer bb = ByteBuffer.allocate(12);
+      bb.order(ByteOrder.LITTLE_ENDIAN);
+
+      channel.read(bb, position);
+      bb.flip();
+
+      int actor = bb.getInt();
+      int dataId = bb.getInt();
+      int len = bb.getInt();
+
+      ByteBuffer res = ByteBuffer.allocate(len);
+      res.order(ByteOrder.LITTLE_ENDIAN);
+      channel.read(res, position + 12);
+      res.flip();
+      return res;
+    } catch (FileNotFoundException e) {
+      throw new RuntimeException(e);
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  private void parseExternalData() {
+    File traceFile = new File(VmSettings.TRACE_FILE + ".dat");
+
+    ByteBuffer bb = ByteBuffer.allocate(12);
+    bb.order(ByteOrder.LITTLE_ENDIAN);
+
+    try (FileInputStream fis = new FileInputStream(traceFile);
+        FileChannel channel = fis.getChannel()) {
+      while (channel.position() < channel.size()) {
+        // read from file if buffer is empty
+
+        long position = channel.position();
+        bb.clear();
+        channel.read(bb);
+        bb.flip();
+
+        long actor = bb.getInt();
+        long dataId = bb.getInt();
+        int len = bb.getInt();
+
+        long key = (actor << 32) | dataId;
+        externalDataDict.put(key, position);
+
+        position = channel.position();
+        channel.position(position + len);
+      }
+
+    } catch (FileNotFoundException e) {
+      throw new RuntimeException(e);
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
   }
 
   private int getId(final int numbytes) {
     switch (numbytes) {
-      case 0:
-        return 0 | b.get();
       case 1:
-        return 0 | b.getShort();
+        return 0 | b.get();
       case 2:
-        return (b.get() << 16) | b.getShort();
+        return 0 | b.getShort();
       case 3:
+        return (b.get() << 16) | b.getShort();
+      case 4:
         return b.getInt();
     }
     assert false : "should not happen";
@@ -220,6 +345,8 @@ public final class TraceParser {
     HashMap<Integer, ArrayList<MessageRecord>> bucket1          = new HashMap<>();
     HashMap<Integer, ArrayList<MessageRecord>> bucket2          = new HashMap<>();
     Queue<MessageRecord>                       expectedMessages = new java.util.LinkedList<>();
+    int                                        max              = 0;
+    int                                        max2             = 0;
 
     ActorNode(final long actorId) {
       super();
@@ -261,39 +388,70 @@ public final class TraceParser {
     }
 
     private void addMessageRecords(final ArrayList<MessageRecord> mr, final int order) {
+      assert mr != null;
+      // assert !bucket1.containsKey(order);
+      // bucket1.put(order, mr);
+
       if (bucket1.containsKey(order)) {
         // use bucket two
         assert !bucket2.containsKey(order);
         bucket2.put(order, mr);
+        max2 = Math.max(max2, order);
       } else {
         assert !bucket2.containsKey(order);
         bucket1.put(order, mr);
-
-        if (bucket1.size() == 0xFFFF) {
+        max = Math.max(max, order);
+        if (max == 0xFFFF) {
           // Bucket 1 is full, switch
-          assert bucket2.size() < 0xEFFF;
-
-          for (int i = 0; i < 0xFFFF; i++) {
+          assert max2 < 0xEFFF;
+          for (int i = 0; i <= max; i++) {
+            if (!bucket1.containsKey(i)) {
+              continue;
+            }
             expectedMessages.addAll(bucket1.get(i));
           }
-
           bucket1.clear();
           HashMap<Integer, ArrayList<MessageRecord>> temp = bucket1;
           bucket1 = bucket2;
           bucket2 = temp;
+          max = max2;
+          max2 = 0;
         }
       }
+
     }
 
     public Queue<MessageRecord> getExpectedMessages() {
-      assert bucket1.size() < 0xFFFF && bucket2.isEmpty();
-      for (int i = 0; i < 0xFFFF; i++) {
+
+      assert bucket1.size() < 0xFFFF;
+      assert bucket2.isEmpty();
+      // assert bucket2.isEmpty();
+      for (int i = 0; i <= max; i++) {
         if (bucket1.containsKey(i)) {
           expectedMessages.addAll(bucket1.get(i));
         } else {
-          break;
+          continue;
         }
       }
+
+      for (int i = 0; i <= max2; i++) {
+        if (bucket2.containsKey(i)) {
+          expectedMessages.addAll(bucket2.get(i));
+        } else {
+          continue;
+        }
+      }
+
+      /*
+       * for (int i = 0; i <= max; i++) {
+       * if (!bucket1.containsKey(i)) {
+       * // System.out.println("Cluster " + i + " Missing in Actor" + this.actorId);
+       * continue;
+       * }
+       * expectedMessages.addAll(bucket1.get(i));
+       * }
+       */
+
       return expectedMessages;
     }
 
@@ -305,38 +463,57 @@ public final class TraceParser {
 
   public static class MessageRecord {
     public final int sender;
-    // 0 means not external
-    public final int extData;
 
     public MessageRecord(final int sender) {
       super();
       this.sender = sender;
-      this.extData = 0;
-    }
-
-    public MessageRecord(final int sender, final int ext) {
-      super();
-      this.sender = sender;
-      this.extData = ext;
     }
 
     public boolean isExternal() {
-      return extData != 0;
+      return false;
+    }
+  }
+
+  public static class ExternalMessageRecord extends MessageRecord {
+    public final short method;
+    public final int   dataId;
+
+    public ExternalMessageRecord(final int sender, final short method, final int dataId) {
+      super(sender);
+      this.method = method;
+      this.dataId = dataId;
+    }
+
+    @Override
+    public boolean isExternal() {
+      return true;
     }
   }
 
   public static class PromiseMessageRecord extends MessageRecord {
     public int pId;
 
-    public PromiseMessageRecord(final int sender, final int pId,
-        final int ext) {
-      super(sender, ext);
-      this.pId = pId;
-    }
-
     public PromiseMessageRecord(final int sender, final int pId) {
       super(sender);
       this.pId = pId;
     }
   }
+
+  public static class ExternalPromiseMessageRecord extends PromiseMessageRecord {
+    public final int   dataId;
+    public final short method;
+
+    public ExternalPromiseMessageRecord(final int sender, final int pId, final short method,
+        final int extData) {
+      super(sender, pId);
+      this.method = method;
+      this.dataId = extData;
+    }
+
+    @Override
+    public boolean isExternal() {
+      return true;
+    }
+  }
+
 }

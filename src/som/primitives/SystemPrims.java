@@ -51,6 +51,7 @@ import som.vmobjects.SObjectWithClass;
 import som.vmobjects.SSymbol;
 import tools.SourceCoordinate;
 import tools.concurrency.ActorExecutionTrace;
+import tools.concurrency.TraceParser;
 import tools.concurrency.TracingBackend;
 import tools.concurrency.nodes.TraceActorContextNode;
 
@@ -269,6 +270,10 @@ public final class SystemPrims {
 
     @Specialization
     public final long doSObject(final Object receiver) {
+      if (VmSettings.REPLAY) {
+        return TraceParser.getLongSysCallResult();
+      }
+
       long res = System.currentTimeMillis() - startTime;
       if (VmSettings.ACTOR_TRACING) {
         ActorExecutionTrace.longSystemCall(res, tracer);
@@ -301,7 +306,12 @@ public final class SystemPrims {
 
     @Specialization
     public final long doSObject(final Object receiver) {
+      if (VmSettings.REPLAY) {
+        return TraceParser.getLongSysCallResult();
+      }
+
       long res = System.nanoTime() / 1000L - startMicroTime;
+
       if (VmSettings.ACTOR_TRACING) {
         ActorExecutionTrace.longSystemCall(res, tracer);
       }

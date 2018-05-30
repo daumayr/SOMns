@@ -3,7 +3,9 @@ package tools.concurrency;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.Queue;
+import java.util.WeakHashMap;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -16,6 +18,7 @@ import som.interpreter.actors.EventualMessage;
 import som.interpreter.actors.EventualMessage.PromiseMessage;
 import som.interpreter.actors.SPromise.STracingPromise;
 import som.vm.VmSettings;
+import tools.concurrency.TraceParser.ExternalMessageRecord;
 import tools.concurrency.TraceParser.MessageRecord;
 import tools.debugger.WebDebugger;
 
@@ -52,15 +55,11 @@ public class TracingActors {
     }
 
     public short getOrdering() {
-      return ordering;
+      return ordering++;
     }
 
     public synchronized int getDataId() {
       return nextDataID++;
-    }
-
-    public void incrementOrdering() {
-      ordering++;
     }
 
     public boolean isStepToNextTurn() {
@@ -96,12 +95,25 @@ public class TracingActors {
     protected int                              children;
     protected final Queue<MessageRecord>       expectedMessages;
     protected final ArrayList<EventualMessage> leftovers = new ArrayList<>();
-    private static List<ReplayActor>           actorList;
+    private static Map<Integer, ReplayActor>   actorList;
+    private SExternalDataSource                dataSource;
 
     static {
-      if (VmSettings.DEBUG_MODE) {
-        actorList = new ArrayList<>();
+      // f (VmSettings.DEBUG_MODE) {
+      actorList = new WeakHashMap();
+      // }
+    }
+
+    public SExternalDataSource getDataSource() {
+      assert dataSource != null;
+      return dataSource;
+    }
+
+    public void setDataSource(final SExternalDataSource ds) {
+      if (dataSource != null) {
+        throw new UnsupportedOperationException("Allready has a datasource!");
       }
+      dataSource = ds;
     }
 
     private static int lookupId() {
@@ -122,11 +134,11 @@ public class TracingActors {
 
       expectedMessages = TraceParser.getExpectedMessages(actorId);
 
-      if (VmSettings.DEBUG_MODE) {
-        synchronized (actorList) {
-          actorList.add(this);
-        }
+      // if (VmSettings.DEBUG_MODE |) {
+      synchronized (actorList) {
+        actorList.put(actorId, this);
       }
+      // }
     }
 
     @Override
@@ -163,7 +175,7 @@ public class TracingActors {
       }
 
       boolean result = false;
-      for (ReplayActor a : actorList) {
+      for (ReplayActor a : actorList.values()) {
         ReplayActor ra = a;
         if (ra.expectedMessages != null && ra.expectedMessages.peek() != null) {
           result = true; // program did not execute all messages
@@ -194,7 +206,15 @@ public class TracingActors {
           n += a.mailboxExtension != null ? a.mailboxExtension.size() : 0;
 
           Output.println(
-              a.getName() + " [" + a.getId() + "] has " + n + " unexpected messages");
+              a.getName() + " [" + a.getId() + "] has " + n + " unexpected messages:");
+          if (a.firstMessage != null) {
+            printMsg(a.firstMessage);
+            if (a.mailboxExtension != null) {
+              for (EventualMessage em : a.mailboxExtension) {
+                printMsg(em);
+              }
+            }
+          }
         }
       }
       return result;
@@ -246,6 +266,12 @@ public class TracingActors {
     private static void removeFirstExpectedMessage(final ReplayActor a) {
       MessageRecord first = a.expectedMessages.peek();
       MessageRecord removed = a.expectedMessages.remove();
+
+      if (a.expectedMessages.peek() instanceof TraceParser.ExternalMessageRecord) {
+        ExternalMessageRecord emr = (ExternalMessageRecord) a.expectedMessages.peek();
+        ReplayActor ra = actorList.get(emr.sender);
+        ra.getDataSource().requestExternalMessage(emr.method, emr.dataId);
+      }
       assert first == removed;
     }
 
