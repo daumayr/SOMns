@@ -240,7 +240,7 @@ public class SPromise extends SObjectWithClass {
     protected int resolvingActor;
 
     public int getResolvingActor() {
-      // assert isCompleted();
+      assert isCompleted();
       return resolvingActor;
     }
 
@@ -357,16 +357,8 @@ public class SPromise extends SObjectWithClass {
       assert !(result instanceof SPromise);
 
       if (VmSettings.ACTOR_TRACING || VmSettings.REPLAY) {
-        // Promises resolved by the TimerPrim will appear as if they have been resolved by
-        // the main actor.
-        /*
-         * if (TimerPrim.isTimerThread(Thread.currentThread())) {
-         * ((STracingPromise) p).resolvingActor = 0;
-         * } else {
-         */
         ((STracingPromise) p).resolvingActor =
             ((TracingActor) EventualMessage.getActorCurrentMessageIsExecutionOn()).getActorId();
-        // }
       } else if (VmSettings.MEDEOR_TRACING) {
         if (type == Resolution.SUCCESSFUL && p.resolutionState != Resolution.CHAINED) {
           MedeorTrace.promiseResolution(p.getPromiseId(), result);

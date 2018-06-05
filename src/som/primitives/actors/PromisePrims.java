@@ -177,7 +177,6 @@ public final class PromisePrims {
         MedeorTrace.sendOperation(SendOp.PROMISE_MSG, pcm.getMessageId(),
             rcvr.getPromiseId());
       }
-
       registerNode.register(rcvr, pcm, current);
 
       return promise;
@@ -245,7 +244,6 @@ public final class PromisePrims {
         MedeorTrace.sendOperation(SendOp.PROMISE_MSG, msg.getMessageId(),
             rcvr.getPromiseId());
       }
-
       registerNode.register(rcvr, msg, current);
 
       return promise;

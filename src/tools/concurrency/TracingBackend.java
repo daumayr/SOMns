@@ -238,7 +238,7 @@ public class TracingBackend {
           result[i] = null;
         } else if (t instanceof ActorProcessingThread) {
           // if the thread is not currently having an actor, it is not executing
-          if (((ActorProcessingThread) t).currentlyExecutingActor == null || t == current) {
+          if (((ActorProcessingThread) t).getCurrentActor() == null || t == current) {
             runningThreads -= 1;
             result[i] = null;
             t.getBuffer().swapStorage();

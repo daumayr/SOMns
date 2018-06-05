@@ -12,7 +12,9 @@ import som.interpreter.actors.SuspendExecutionNodeGen;
 import som.interpreter.nodes.nary.UnaryExpressionNode;
 import som.primitives.threading.TaskThreads.SomTaskOrThread;
 import som.vm.VmSettings;
+import tools.concurrency.MedeorTrace;
 import tools.concurrency.Tags.ExpressionBreakpoint;
+import tools.debugger.entities.ReceiveOp;
 
 
 public class ActivityJoin {
@@ -47,11 +49,10 @@ public class ActivityJoin {
         haltNode.executeEvaluated(frame, result);
       }
 
-      /*
-       * TODOif (VmSettings.ACTOR_TRACING) {
-       * ActorExecutionTrace.receiveOperation(ReceiveOp.TASK_JOIN, task.getId());
-       * }
-       */
+      if (VmSettings.MEDEOR_TRACING) {
+        MedeorTrace.receiveOperation(ReceiveOp.TASK_JOIN, task.getId());
+      }
+
       return result;
     }
 

@@ -41,6 +41,7 @@ import tools.concurrency.TracingActivityThread;
 import tools.debugger.WebDebugger;
 import tools.debugger.entities.ActivityType;
 import tools.debugger.entities.BreakpointType;
+import tools.debugger.entities.PassiveEntityType;
 import tools.debugger.nodes.AbstractBreakpointNode;
 import tools.debugger.session.Breakpoints;
 
@@ -299,12 +300,10 @@ public abstract class ChannelPrimitives {
     public final SChannel newChannel(final Object module) {
       SChannel result = SChannel.create();
 
-      /*
-       * TODO if (VmSettings.ACTOR_TRACING) {
-       * ActorExecutionTrace.passiveEntityCreation(PassiveEntityType.CHANNEL,
-       * result.getId(), ActorExecutionTrace.getPrimitiveCaller(sourceSection));
-       * }
-       */
+      if (VmSettings.MEDEOR_TRACING) {
+        MedeorTrace.passiveEntityCreation(PassiveEntityType.CHANNEL,
+            result.getId(), MedeorTrace.getPrimitiveCaller(sourceSection));
+      }
       return result;
     }
   }

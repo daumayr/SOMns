@@ -287,7 +287,6 @@ public final class VM {
 
     shutdownPools();
 
-    Actor.reportStats();
     TracingBackend.waitForTrace();
 
     int code = errorCode;

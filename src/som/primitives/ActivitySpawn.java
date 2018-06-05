@@ -24,6 +24,7 @@ import som.primitives.processes.ChannelPrimitives.Process;
 import som.primitives.processes.ChannelPrimitives.TracingProcess;
 import som.primitives.threading.TaskThreads.SomForkJoinTask;
 import som.primitives.threading.TaskThreads.SomThreadTask;
+import som.primitives.threading.TaskThreads.TracedForkJoinTask;
 import som.primitives.threading.TaskThreads.TracedThreadTask;
 import som.primitives.threading.ThreadingModule;
 import som.vm.VmSettings;
@@ -50,15 +51,14 @@ public abstract class ActivitySpawn {
   private static SomForkJoinTask createTask(final Object[] argArray,
       final boolean stopOnRoot, final SBlock block, final SourceSection section) {
     SomForkJoinTask task;
-    /*
-     * if (VmSettings.ACTOR_TRACING) {
-     * TODOtask = new TracedForkJoinTask(argArray, stopOnRoot);
-     * ActorExecutionTrace.activityCreation(ActivityType.TASK, task.getId(),
-     * block.getMethod().getSignature(), section);
-     * } else {
-     */
-    task = new SomForkJoinTask(argArray, stopOnRoot);
-    // }
+
+    if (VmSettings.MEDEOR_TRACING) {
+      task = new TracedForkJoinTask(argArray, stopOnRoot);
+      MedeorTrace.activityCreation(ActivityType.TASK, task.getId(),
+          block.getMethod().getSignature(), section);
+    } else {
+      task = new SomForkJoinTask(argArray, stopOnRoot);
+    }
     return task;
   }
 

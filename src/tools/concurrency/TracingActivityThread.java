@@ -18,6 +18,8 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
   protected final long        threadId;
   protected long              nextEntityId;
 
+  public static final int EXTERNAL_BUFFER_SIZE = 500;
+
   // Used for tracing, accessed by the ExecAllMessages classes
   public long createdMessages;
   public long resolvedPromises;
@@ -49,7 +51,7 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
       threadId = threadIdGen.getAndIncrement();
       traceBuffer = TraceBuffer.create(threadId);
       nextEntityId = 1 + (threadId << TraceData.ENTITY_ID_BITS);
-      externalData = new Object[500];
+      externalData = new Object[EXTERNAL_BUFFER_SIZE];
     } else {
       threadId = 0;
       nextEntityId = 0;
@@ -115,9 +117,9 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
   public final void addExternalData(final Object data) {
     externalData[extIndex] = data;
     extIndex++;
-    if (extIndex == 500) {
+    if (extIndex == EXTERNAL_BUFFER_SIZE) {
       TracingBackend.addExternalData(externalData);
-      externalData = new Object[500];
+      externalData = new Object[EXTERNAL_BUFFER_SIZE];
       extIndex = 0;
     }
   }

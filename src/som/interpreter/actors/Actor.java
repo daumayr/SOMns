@@ -32,6 +32,7 @@ import tools.concurrency.TracingActors.TracingActor;
 import tools.concurrency.nodes.TraceActorContextNode;
 import tools.debugger.WebDebugger;
 import tools.debugger.entities.ActivityType;
+import tools.debugger.entities.DynamicScopeType;
 
 
 /**
@@ -85,10 +86,6 @@ public class Actor implements Activity {
 
   /** Is scheduled on the pool, and executes messages to this actor. */
   protected final ExecAllMessages executor;
-
-  // used to collect absolute numbers from the threads
-  // private static Object statsLock = new Object();
-  // private static long numCreatedEntities = 0;
 
   /**
    * Possible roles for an actor.
@@ -295,7 +292,14 @@ public class Actor implements Activity {
         TracingActor.handleBreakpointsAndStepping(msg, dbg, actor);
       }
 
+      if (VmSettings.MEDEOR_TRACING) {
+        MedeorTrace.scopeStart(DynamicScopeType.TURN, msg.getMessageId(),
+            msg.getTargetSourceSection());
+      }
       msg.execute();
+      if (VmSettings.MEDEOR_TRACING) {
+        MedeorTrace.scopeEnd(DynamicScopeType.TURN);
+      }
     }
 
     private boolean getCurrentMessagesOrCompleteExecution() {
@@ -308,9 +312,7 @@ public class Actor implements Activity {
           assert mailboxExtension == null;
           // complete execution after all messages are processed
           actor.isExecuting = false;
-          if (VmSettings.ACTOR_TRACING) {
-            // ((TracingActor) actor).incrementOrdering();
-          } else if (VmSettings.MEDEOR_TRACING) {
+          if (VmSettings.MEDEOR_TRACING) {
             MedeorTrace.clearCurrentActivity(actor);
           }
           size = 0;
@@ -350,7 +352,7 @@ public class Actor implements Activity {
   public static final class ActorProcessingThread extends TracingActivityThread {
     public EventualMessage currentMessage;
 
-    public Actor currentlyExecutingActor;
+    protected Actor currentlyExecutingActor;
 
     protected ActorProcessingThread(final ForkJoinPool pool) {
       super(pool);
@@ -367,31 +369,6 @@ public class Actor implements Activity {
     public Actor getCurrentActor() {
       return currentlyExecutingActor;
     }
-
-    @Override
-    protected void onTermination(final Throwable exception) {
-      /*
-       * if (VmSettings.ACTOR_TRACING) {
-       * long createdEntities = nextEntityId - 1 - (threadId << TraceData.ENTITY_ID_BITS);
-       * Output.printConcurrencyEntitiesReport(
-       * "[Thread " + threadId + "]\tE#" + createdEntities);
-       * synchronized (statsLock) {
-       * numCreatedEntities += createdEntities;
-       * }
-       * }
-       */
-      super.onTermination(exception);
-    }
-  }
-
-  public static final void reportStats() {
-    /*
-     * if (VmSettings.ACTOR_TRACING) {
-     * synchronized (statsLock) {
-     * Output.printConcurrencyEntitiesReport("[Total]\tE#" + numCreatedEntities);
-     * }
-     * }
-     */
   }
 
   @Override
