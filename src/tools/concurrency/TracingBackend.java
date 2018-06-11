@@ -40,7 +40,6 @@ import som.vmobjects.SSymbol;
 import tools.concurrency.ActorExecutionTrace.StringWrapper;
 import tools.concurrency.ActorExecutionTrace.TwoDArrayWrapper;
 import tools.debugger.FrontendConnector;
-import tools.debugger.entities.Implementation;
 
 
 /**
@@ -188,7 +187,7 @@ public class TracingBackend {
 
   @TruffleBoundary
   private static void returnBufferGlobally(final BufferAndLimit buffer) {
-    fullBuffers.offer(buffer);
+    assert fullBuffers.offer(buffer);
   }
 
   private static HashSet<TracingActivityThread> tracingThreads = new HashSet<>();
@@ -304,18 +303,6 @@ public class TracingBackend {
     protected long traceBytes;
     protected long externalBytes;
 
-    private BufferAndLimit ignoreEmptyBuffer(final BufferAndLimit buffer) {
-      // Ignore buffers that only contain the thread index
-      if (buffer.limit <= Implementation.IMPL_THREAD.getSize() +
-          Implementation.IMPL_CURRENT_ACTIVITY.getSize()) {
-
-        TracingBackend.emptyBuffers.add(buffer.buffer);
-        return null;
-      } else {
-        return buffer;
-      }
-    }
-
     private BufferAndLimit tryToObtainBuffer() {
       BufferAndLimit buffer;
       try {
@@ -331,7 +318,7 @@ public class TracingBackend {
           }
           return null;
         } else {
-          return ignoreEmptyBuffer(buffer);
+          return buffer;
         }
       } catch (InterruptedException e) {
         return null;
