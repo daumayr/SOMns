@@ -183,15 +183,12 @@ public class TracingActors {
         ReplayActor ra = a;
         if (ra.expectedMessages != null && ra.expectedMessages.peek() != null) {
           result = true; // program did not execute all messages
-          if (ra.expectedMessages.peek() instanceof TraceParser.PromiseMessageRecord) {
-            Output.println(a.getName() + " [" + ra.getId() + "] expecting PromiseMessage from "
-                + ra.expectedMessages.peek().sender + " PID "
-                + ((TraceParser.PromiseMessageRecord) ra.expectedMessages.peek()).pId);
-          } else {
-            Output.println(a.getName() + " [" + ra.getId() + "] expecting Messagefrom "
-                + ra.expectedMessages.peek().sender);
-          }
+          Output.println("===========================================");
+          Output.println("Actor " + ra.getActorId());
+          Output.println("Expected: ");
+          printMsg(ra.expectedMessages.peek());
 
+          Output.println("Mailbox: ");
           if (a.firstMessage != null) {
             printMsg(a.firstMessage);
             if (a.mailboxExtension != null) {
@@ -225,13 +222,33 @@ public class TracingActors {
     }
 
     private static void printMsg(final EventualMessage msg) {
+      Output.print("\t");
+      if (msg instanceof ExternalMessage) {
+        Output.print("external ");
+      }
+
       if (msg instanceof PromiseMessage) {
-        Output.println("\t" + "PromiseMessage " + msg.getSelector()
+        Output.println("PromiseMessage " + msg.getSelector()
             + " from " + msg.getSender().getId() + " PID "
             + ((STracingPromise) ((PromiseMessage) msg).getPromise()).getResolvingActor());
       } else {
         Output.println(
-            "\t" + "Message" + msg.getSelector() + " from " + msg.getSender().getId());
+            "Message" + msg.getSelector() + " from " + msg.getSender().getId());
+      }
+    }
+
+    private static void printMsg(final MessageRecord msg) {
+      Output.print("\t");
+      if (msg.isExternal()) {
+        Output.print("external ");
+      }
+
+      if (msg instanceof PromiseMessageRecord) {
+        Output.println("PromiseMessage "
+            + " from " + msg.sender + " PID "
+            + ((PromiseMessageRecord) msg).pId);
+      } else {
+        Output.println("Message" + " from " + msg.sender);
       }
     }
 
@@ -249,13 +266,13 @@ public class TracingActors {
 
       MessageRecord other = expectedMessages.peek();
 
+      if (msg instanceof PromiseMessage != other instanceof TraceParser.PromiseMessageRecord) {
+        return false;
+      }
+
       // handle promise messages
-      if (other instanceof TraceParser.PromiseMessageRecord) {
-        if (msg instanceof PromiseMessage) {
-          if (((STracingPromise) ((PromiseMessage) msg).getPromise()).getResolvingActor() != ((TraceParser.PromiseMessageRecord) other).pId) {
-            return false;
-          }
-        } else {
+      if (msg instanceof PromiseMessage) {
+        if (((STracingPromise) ((PromiseMessage) msg).getPromise()).getResolvingActor() != ((TraceParser.PromiseMessageRecord) other).pId) {
           return false;
         }
       }
