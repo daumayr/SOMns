@@ -62,7 +62,7 @@ import som.primitives.PathPrimsFactory;
 import som.primitives.SizeAndLengthPrimFactory;
 import som.primitives.StringPrimsFactory;
 import som.primitives.SystemPrimsFactory;
-import som.primitives.TimerPrimFactory;
+import som.primitives.TimerPrimsFactory;
 import som.primitives.UnequalsPrimFactory;
 import som.primitives.actors.ActorClassesFactory;
 import som.primitives.actors.CreateActorPrimFactory;
@@ -192,6 +192,7 @@ public class Primitives extends PrimitiveLoader<VM, ExpressionNode, SSymbol> {
     allFactories.addAll(StringPrimsFactory.getFactories());
     allFactories.addAll(SystemPrimsFactory.getFactories());
     allFactories.addAll(WhilePrimitiveNodeFactory.getFactories());
+    allFactories.addAll(TimerPrimsFactory.getFactories());
 
     allFactories.addAll((List) ActivitySpawnFactory.getFactories());
     allFactories.addAll(ThreadingModuleFactory.getFactories());
@@ -245,7 +246,6 @@ public class Primitives extends PrimitiveLoader<VM, ExpressionNode, SSymbol> {
     allFactories.add(SubtractionPrimFactory.getInstance());
     allFactories.add(UnequalsPrimFactory.getInstance());
     allFactories.add(new WhileWithStaticBlocksNodeFactory());
-    allFactories.add(TimerPrimFactory.getInstance());
 
     allFactories.add(CreateActorPrimFactory.getInstance());
     allFactories.add(ResolvePromiseNodeFactory.getInstance());

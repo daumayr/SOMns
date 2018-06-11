@@ -8,6 +8,7 @@ import java.util.Queue;
 import java.util.WeakHashMap;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiConsumer;
 
 import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 
@@ -15,11 +16,14 @@ import som.Output;
 import som.VM;
 import som.interpreter.actors.Actor;
 import som.interpreter.actors.EventualMessage;
+import som.interpreter.actors.EventualMessage.ExternalMessage;
 import som.interpreter.actors.EventualMessage.PromiseMessage;
 import som.interpreter.actors.SPromise.STracingPromise;
 import som.vm.VmSettings;
 import tools.concurrency.TraceParser.ExternalMessageRecord;
+import tools.concurrency.TraceParser.ExternalPromiseMessageRecord;
 import tools.concurrency.TraceParser.MessageRecord;
+import tools.concurrency.TraceParser.PromiseMessageRecord;
 import tools.debugger.WebDebugger;
 
 
@@ -96,7 +100,7 @@ public class TracingActors {
     protected final Queue<MessageRecord>       expectedMessages;
     protected final ArrayList<EventualMessage> leftovers = new ArrayList<>();
     private static Map<Integer, ReplayActor>   actorList;
-    private SExternalDataSource                dataSource;
+    private BiConsumer<Short, Integer>         dataSource;
 
     static {
       // f (VmSettings.DEBUG_MODE) {
@@ -104,12 +108,12 @@ public class TracingActors {
       // }
     }
 
-    public SExternalDataSource getDataSource() {
+    public BiConsumer<Short, Integer> getDataSource() {
       assert dataSource != null;
       return dataSource;
     }
 
-    public void setDataSource(final SExternalDataSource ds) {
+    public void setDataSource(final BiConsumer<Short, Integer> ds) {
       if (dataSource != null) {
         throw new UnsupportedOperationException("Allready has a datasource!");
       }
@@ -267,10 +271,17 @@ public class TracingActors {
       MessageRecord first = a.expectedMessages.peek();
       MessageRecord removed = a.expectedMessages.remove();
 
-      if (a.expectedMessages.peek() instanceof TraceParser.ExternalMessageRecord) {
-        ExternalMessageRecord emr = (ExternalMessageRecord) a.expectedMessages.peek();
-        ReplayActor ra = actorList.get(emr.sender);
-        ra.getDataSource().requestExternalMessage(emr.method, emr.dataId);
+      if (a.expectedMessages.peek() != null && a.expectedMessages.peek().isExternal()) {
+        if (a.expectedMessages.peek() instanceof ExternalMessageRecord) {
+          ExternalMessageRecord emr = (ExternalMessageRecord) a.expectedMessages.peek();
+          actorList.get(emr.sender).getDataSource().accept(emr.method,
+              emr.dataId);
+        } else {
+          ExternalPromiseMessageRecord emr =
+              (ExternalPromiseMessageRecord) a.expectedMessages.peek();
+          actorList.get(emr.pId).getDataSource().accept(emr.method,
+              emr.dataId);
+        }
       }
       assert first == removed;
     }

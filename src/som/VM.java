@@ -357,6 +357,10 @@ public final class VM {
     objectSystem.executeApplication(vmMirror, mainActor);
   }
 
+  public Actor getMainActor() {
+    return mainActor;
+  }
+
   public static void main(final String[] args) {
     VmOptions vmOptions = new VmOptions(args);
 

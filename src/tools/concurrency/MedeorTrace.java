@@ -5,7 +5,6 @@ import com.oracle.truffle.api.source.SourceSection;
 
 import som.interpreter.actors.Actor;
 import som.interpreter.nodes.dispatch.Dispatchable;
-import som.primitives.TimerPrim;
 import som.vm.Activity;
 import som.vm.ObjectSystem;
 import som.vm.Symbols;
@@ -79,9 +78,6 @@ public class MedeorTrace {
 
   public static void promiseResolution(final long promiseId, final Object value) {
     Thread current = Thread.currentThread();
-    if (TimerPrim.isTimerThread(current)) {
-      return;
-    }
 
     assert current instanceof TracingActivityThread;
     TracingActivityThread t = (TracingActivityThread) current;
@@ -94,10 +90,6 @@ public class MedeorTrace {
 
   public static void promiseError(final long promiseId, final Object value) {
     Thread current = Thread.currentThread();
-    if (TimerPrim.isTimerThread(current)) {
-      return;
-    }
-
     assert current instanceof TracingActivityThread;
     TracingActivityThread t = (TracingActivityThread) current;
     ((MedeorTraceBuffer) t.getBuffer()).recordSendOperation(SendOp.PROMISE_RESOLUTION, 0,

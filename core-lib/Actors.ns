@@ -22,6 +22,7 @@ class Actors usingVmMirror: vmMirror usingKernel: kernel = Value (
 | private vmMirror  = vmMirror.
   private Exception = kernel Exception.
   private Vector    = kernel Vector.
+  private timer     = Timer new.
 |
   (* the easiest way to get to this reference in the VM.
      And, yes, looks dirty, but is rather ok. They are Values after all. *)
@@ -151,6 +152,14 @@ class Actors usingVmMirror: vmMirror usingKernel: kernel = Value (
     )
   )
 
+  private class Timer = Value (
+    vmMirror actorSetupTimer: nil.
+  )(
+    public after: milliseconds do: aBlock = (
+        vmMirror actorResolveProm: aBlock after: milliseconds.
+    )
+  )
+
   public createPromisePair = (
     ^ vmMirror actorsCreatePromisePair: nil.
   )
@@ -258,9 +267,6 @@ class Actors usingVmMirror: vmMirror usingKernel: kernel = Value (
   )
 
   public after: milliseconds do: aBlock = (
-    | promisePair |
-    promisePair:: createPromisePair.
-    promisePair promise whenResolved: aBlock.
-    vmMirror actorResolveProm: (promisePair resolver) after: milliseconds.
+      timer <-: after: milliseconds do: aBlock.
   )
 )
