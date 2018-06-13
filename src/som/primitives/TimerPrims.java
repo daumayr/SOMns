@@ -80,7 +80,7 @@ public final class TimerPrims {
   }
 
   @GenerateNodeFactory
-  @Primitive(primitive = "actorResolveProm:after:")
+  @Primitive(primitive = "actorDo:after:")
   public abstract static class TimerPrim extends BinarySystemOperation {
 
     @Specialization

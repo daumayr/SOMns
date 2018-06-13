@@ -156,7 +156,7 @@ class Actors usingVmMirror: vmMirror usingKernel: kernel = Value (
     vmMirror actorSetupTimer: nil.
   )(
     public after: milliseconds do: aBlock = (
-        vmMirror actorResolveProm: aBlock after: milliseconds.
+        vmMirror actorDo: aBlock after: milliseconds.
     )
   )
 

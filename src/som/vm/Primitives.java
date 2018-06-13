@@ -192,7 +192,7 @@ public class Primitives extends PrimitiveLoader<VM, ExpressionNode, SSymbol> {
     allFactories.addAll(StringPrimsFactory.getFactories());
     allFactories.addAll(SystemPrimsFactory.getFactories());
     allFactories.addAll(WhilePrimitiveNodeFactory.getFactories());
-    allFactories.addAll(TimerPrimsFactory.getFactories());
+    allFactories.addAll((List) TimerPrimsFactory.getFactories());
 
     allFactories.addAll((List) ActivitySpawnFactory.getFactories());
     allFactories.addAll(ThreadingModuleFactory.getFactories());

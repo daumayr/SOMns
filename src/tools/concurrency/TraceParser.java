@@ -48,7 +48,6 @@ public final class TraceParser {
   public static ByteBuffer getExternalData(final int actorId, final int dataId) {
     long key = (((long) actorId) << 32) | dataId;
     long pos = parser.externalDataDict.get(key);
-    // System.out.println("GET for " + actorId + " and " + dataId + " at: " + pos);
     return parser.readExternalData(pos);
   }
 
