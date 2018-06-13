@@ -48,7 +48,7 @@ public final class TraceParser {
   public static ByteBuffer getExternalData(final int actorId, final int dataId) {
     long key = (((long) actorId) << 32) | dataId;
     long pos = parser.externalDataDict.get(key);
-    System.out.println("GET for " + actorId + " and " + dataId + " at: " + pos);
+    // System.out.println("GET for " + actorId + " and " + dataId + " at: " + pos);
     return parser.readExternalData(pos);
   }
 
@@ -237,7 +237,6 @@ public final class TraceParser {
             break;
           case SYSTEM_CALL:
             dataId = b.getInt();
-            System.out.println("" + current.actorId + " : " + dataId);
             break;
           default:
             assert false;
@@ -397,13 +396,14 @@ public final class TraceParser {
         assert !bucket2.containsKey(order);
         bucket2.put(order, mr);
         max2 = Math.max(max2, order);
+        assert max2 < 0x8FFF;
       } else {
         assert !bucket2.containsKey(order);
         bucket1.put(order, mr);
         max = Math.max(max, order);
         if (max == 0xFFFF) {
           // Bucket 1 is full, switch
-          assert max2 < 0xEFFF;
+          assert max2 < 0x8FFF;
           for (int i = 0; i <= max; i++) {
             if (!bucket1.containsKey(i)) {
               continue;

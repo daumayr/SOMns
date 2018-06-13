@@ -172,7 +172,6 @@ public class MedeorTrace {
       super.swapStorage();
       this.lastActivity = null;
       recordCurrentActivity(current);
-      recordCurrentActivity(current);
       return true;
     }
 
@@ -180,7 +179,6 @@ public class MedeorTrace {
     protected boolean ensureSufficientSpace(final int requiredSpace, final Activity current) {
       if (position + requiredSpace < TracingBackend.BUFFER_SIZE) {
         boolean didSwap = swapStorage(current);
-        assert didSwap;
         return didSwap;
       }
       return false;

@@ -49,11 +49,6 @@ public class TracingActors {
       this.actorId = id;
     }
 
-    @Override
-    public final long getId() {
-      return actorId;
-    }
-
     public final int getActorId() {
       return actorId;
     }
@@ -101,6 +96,8 @@ public class TracingActors {
     protected final ArrayList<EventualMessage> leftovers = new ArrayList<>();
     private static Map<Integer, ReplayActor>   actorList;
     private BiConsumer<Short, Integer>         dataSource;
+    private int                                traceBufferId;
+    private final long                         activityId;
 
     static {
       // f (VmSettings.DEBUG_MODE) {
@@ -120,6 +117,11 @@ public class TracingActors {
       dataSource = ds;
     }
 
+    @Override
+    public int getNextTraceBufferId() {
+      return traceBufferId++;
+    }
+
     private static int lookupId() {
       if (Thread.currentThread() instanceof ActorProcessingThread) {
         ActorProcessingThread t = (ActorProcessingThread) Thread.currentThread();
@@ -132,11 +134,17 @@ public class TracingActors {
       return 0;
     }
 
+    @Override
+    public final long getId() {
+      return actorId;
+    }
+
     @TruffleBoundary
     public ReplayActor(final VM vm) {
       super(vm, lookupId());
 
       expectedMessages = TraceParser.getExpectedMessages(actorId);
+      this.activityId = TracingActivityThread.newEntityId();
 
       // if (VmSettings.DEBUG_MODE |) {
       synchronized (actorList) {

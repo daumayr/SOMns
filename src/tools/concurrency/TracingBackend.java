@@ -30,7 +30,6 @@ import com.sun.management.GarbageCollectionNotificationInfo;
 
 import som.Output;
 import som.interpreter.actors.Actor.ActorProcessingThread;
-import som.vm.NotYetImplementedException;
 import som.vm.VmSettings;
 import som.vm.constants.Classes;
 import som.vm.constants.Nil;
@@ -101,7 +100,7 @@ public class TracingBackend {
       setUpGCMonitoring();
     }
 
-    if (VmSettings.ACTOR_TRACING) {
+    if (VmSettings.ACTOR_TRACING || VmSettings.MEDEOR_TRACING) {
       for (int i = 0; i < BUFFER_POOL_SIZE; i++) {
         emptyBuffers.add(new byte[BUFFER_SIZE]);
       }
@@ -223,7 +222,6 @@ public class TracingBackend {
       t.swapTracingBuffer = true;
     }
 
-    TracingActivityThread current = TracingActivityThread.currentThread();
     int runningThreads = result.length;
     while (runningThreads > 1) {
       for (int i = 0; i < result.length; i += 1) {
@@ -237,7 +235,7 @@ public class TracingBackend {
           result[i] = null;
         } else if (t instanceof ActorProcessingThread) {
           // if the thread is not currently having an actor, it is not executing
-          if (((ActorProcessingThread) t).getCurrentActor() == null || t == current) {
+          if (((ActorProcessingThread) t).getCurrentActor() == null) {
             runningThreads -= 1;
             result[i] = null;
             t.getBuffer().swapStorage();
@@ -310,11 +308,7 @@ public class TracingBackend {
         if (buffer == null) {
           if (VmSettings.TRUFFLE_DEBUGGER_ENABLED) {
             // swap all non-empty buffers and try again
-            // TracingBackend.forceSwapBuffers();
-
-            // TODO: implement buffer swapping for debugger again,
-            // but need an implementation that's decoupled from the trace stats primitive
-            throw new NotYetImplementedException();
+            TracingBackend.forceSwapBuffers();
           }
           return null;
         } else {

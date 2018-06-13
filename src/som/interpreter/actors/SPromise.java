@@ -246,7 +246,7 @@ public class SPromise extends SObjectWithClass {
 
   }
 
-  public static final class SMedeorPromise extends SPromise {
+  public static final class SMedeorPromise extends STracingPromise {
     protected final long promiseId;
 
     protected SMedeorPromise(final Actor owner, final boolean haltOnResolver,

@@ -56,7 +56,7 @@ public class VmSettings implements Settings {
     boolean filter =
         (al.size() > 0 && !atConfig.isEmpty()) || getBool("som.actorTracing", false);
 
-    ACTOR_TRACING = TRUFFLE_DEBUGGER_ENABLED || getBool("som.actorTracing", false);
+    ACTOR_TRACING = getBool("som.actorTracing", false);
 
     boolean dm = getBool("som.dynamicMetrics", false);
     DYNAMIC_METRICS = dm;

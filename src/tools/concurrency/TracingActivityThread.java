@@ -47,7 +47,7 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
 
   public TracingActivityThread(final ForkJoinPool pool) {
     super(pool);
-    if (VmSettings.ACTOR_TRACING) {
+    if (VmSettings.ACTOR_TRACING || VmSettings.MEDEOR_TRACING) {
       threadId = threadIdGen.getAndIncrement();
       traceBuffer = TraceBuffer.create(threadId);
       nextEntityId = 1 + (threadId << TraceData.ENTITY_ID_BITS);
