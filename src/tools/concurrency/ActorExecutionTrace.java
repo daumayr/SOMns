@@ -1,10 +1,14 @@
 package tools.concurrency;
 
+import java.util.Arrays;
+
+import som.interpreter.actors.Actor.ActorProcessingThread;
 import som.interpreter.actors.EventualMessage;
 import som.interpreter.actors.EventualMessage.ExternalMessage;
 import som.interpreter.actors.EventualMessage.PromiseMessage;
 import som.interpreter.actors.SPromise.STracingPromise;
 import som.vm.VmSettings;
+import som.vmobjects.SArray.SImmutableArray;
 import tools.concurrency.TracingActors.TracingActor;
 
 
@@ -40,19 +44,20 @@ public class ActorExecutionTrace {
     if (msg instanceof ExternalMessage) {
       ExternalMessage em = (ExternalMessage) msg;
       if (msg instanceof PromiseMessage) {
-        atb.recordExternalPromiseMessage(msg.getSender().getActorId(),
+        atb.recordExternalPromiseMessage(((TracingActor) msg.getSender()).getActorId(),
             ((STracingPromise) ((PromiseMessage) msg).getPromise()).getResolvingActor(),
             em.getMethod(), em.getDataId());
       } else {
-        atb.recordExternalMessage(msg.getSender().getActorId(), em.getMethod(),
+        atb.recordExternalMessage(((TracingActor) msg.getSender()).getActorId(),
+            em.getMethod(),
             em.getDataId());
       }
     } else {
       if (msg instanceof PromiseMessage) {
-        atb.recordPromiseMessage(msg.getSender().getActorId(),
+        atb.recordPromiseMessage(((TracingActor) msg.getSender()).getActorId(),
             ((STracingPromise) ((PromiseMessage) msg).getPromise()).getResolvingActor());
       } else {
-        atb.recordMessage(msg.getSender().getActorId());
+        atb.recordMessage(((TracingActor) msg.getSender()).getActorId());
       }
     }
   }
@@ -63,52 +68,56 @@ public class ActorExecutionTrace {
   }
 
   public static void intSystemCall(final int i) {
-    TracingActor ta = (TracingActor) EventualMessage.getActorCurrentMessageIsExecutionOn();
-    int dataId = ta.getActorId();
-    ByteBuffer b = getExtDataByteBuffer(ta.getActorId(), dataId, Integer.BYTES);
-    b.putInt(i);
+    ActorProcessingThread t = (ActorProcessingThread) getThread();
+    TracingActor ta = (TracingActor) t.getCurrentActor();
+    int dataId = ta.getDataId();
+    byte[] b = getExtDataByteBuffer(ta.getActorId(), dataId, Integer.BYTES);
     recordSystemCall(dataId);
-    recordExternalData(b);
+    t.addExternalData(b);
   }
 
   public static void longSystemCall(final long l) {
-    TracingActor ta = (TracingActor) EventualMessage.getActorCurrentMessageIsExecutionOn();
-    int dataId = ta.getActorId();
-    ByteBuffer b = getExtDataByteBuffer(ta.getActorId(), dataId, Long.BYTES);
-    b.putLong(l);
+    ActorProcessingThread t = (ActorProcessingThread) getThread();
+    TracingActor ta = (TracingActor) t.getCurrentActor();
+    int dataId = ta.getDataId();
+    byte[] b = getExtDataByteBuffer(ta.getActorId(), dataId, Long.BYTES);
     recordSystemCall(dataId);
-    recordExternalData(b);
+    t.addExternalData(b);
   }
 
   public static void doubleSystemCall(final double d) {
-    TracingActor ta = (TracingActor) EventualMessage.getActorCurrentMessageIsExecutionOn();
-    int dataId = ta.getActorId();
-    ByteBuffer b = getExtDataByteBuffer(ta.getActorId(), dataId, Double.BYTES);
-    b.putDouble(d);
+    ActorProcessingThread t = (ActorProcessingThread) getThread();
+    TracingActor ta = (TracingActor) t.getCurrentActor();
+    int dataId = ta.getDataId();
+    byte[] b = getExtDataByteBuffer(ta.getActorId(), dataId, Double.BYTES);
     recordSystemCall(dataId);
-    recordExternalData(b);
+    t.addExternalData(b);
   }
+
+  private static final int EXT_DATA_HEADER_SIZE = 3 * 4;
 
   public static void stringSystemCall(final String s) {
-    TracingActor ta = (TracingActor) EventualMessage.getActorCurrentMessageIsExecutionOn();
-    int dataId = ta.getActorId();
-    ByteBuffer b = getExtDataByteBuffer(ta.getActorId(), dataId, s.getBytes().length);
-    b.put(s.getBytes());
+    ActorProcessingThread t = (ActorProcessingThread) getThread();
+    TracingActor ta = (TracingActor) t.getCurrentActor();
+    int dataId = ta.getDataId();
     recordSystemCall(dataId);
-    recordExternalData(b);
+    StringWrapper sw =
+        new StringWrapper(s, ta.getActorId(), dataId);
+
+    t.addExternalData(sw);
   }
 
-  public static ByteBuffer getExtDataByteBuffer(final int actor, final int dataId,
+  public static byte[] getExtDataByteBuffer(final int actor, final int dataId,
       final int size) {
-    ByteBuffer bb = ByteBuffer.allocate(size + 12);
-    bb.putInt(actor);
-    bb.putInt(dataId);
-    bb.putInt(size);
-    return bb;
+    byte[] buffer = new byte[size + EXT_DATA_HEADER_SIZE];
+    return buffer;
   }
 
-  public static void recordExternalData(final ByteBuffer data) {
-    TracingBackend.addExternalData(data);
+  public static byte[] getExtDataHeader(final int actor, final int dataId,
+      final int size) {
+    byte[] buffer = new byte[EXT_DATA_HEADER_SIZE];
+    Arrays.fill(buffer, (byte) -1);
+    return buffer;
   }
 
   public static class ActorTraceBuffer extends TraceBuffer {
