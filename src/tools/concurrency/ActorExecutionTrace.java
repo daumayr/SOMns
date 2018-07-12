@@ -3,11 +3,6 @@ package tools.concurrency;
 import java.util.Arrays;
 
 import som.interpreter.actors.Actor.ActorProcessingThread;
-import som.interpreter.actors.EventualMessage;
-import som.interpreter.actors.EventualMessage.ExternalMessage;
-import som.interpreter.actors.EventualMessage.PromiseMessage;
-import som.interpreter.actors.SPromise.STracingPromise;
-import som.vm.VmSettings;
 import som.vmobjects.SArray.SImmutableArray;
 import tools.concurrency.TracingActors.TracingActor;
 import tools.concurrency.nodes.TraceActorContextNode;
@@ -116,8 +111,7 @@ public class ActorExecutionTrace {
 
     @Override
     protected void swapBufferWhenNotEnoughSpace(final TraceActorContextNode tracer) {
-      boolean didSwap = swapStorage();
-      assert didSwap;
+      swapStorage();
       if (tracer != null) {
         tracer.trace(currentActor);
       }
