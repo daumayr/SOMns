@@ -754,13 +754,33 @@ OTHER DEALINGS IN THE SOFTWARE. *)
   )
 
   public class AsyncTestContext = TestContext <: Value ()(
+    assert: promise resolvedWith: expectedResolution timeout: ms = (
+      | resolved assertPP|
+      assertPP:: actors createPromisePair.
+      resolved:: false.
+
+      actors after: ms do: [
+        resolved ifFalse: [
+          resolved:: true.
+          assertPP error: #PromiseTimeout.
+        ]
+      ].
+
+      promise
+        whenResolved: [:actualResolution |
+          resolved ifFalse: [
+            resolved:: true.
+            assert: actualResolution equals: expectedResolution.
+            assertPP resolve: 1.
+          ].
+        ]
+        onError: [:actualResolution |
+          failWithMessage: 'Promise broken with error: ' + actualResolution asString ].
+      ^ assertPP promise.
+    )
+
     assert: promise resolvedWith: expectedResolution = (
-      (* TODO: add timeout support *)
-      ^ promise
-          whenResolved: [:actualResolution |
-            assert: actualResolution equals: expectedResolution ]
-          onError: [:actualResolution |
-            failWithMessage: 'Promise broken with error: ' + actualResolution asString ]
+      ^ assert: promise resolvedWith: expectedResolution timeout: 100.
     )
 
     assert: promise resolvedWithObject: expectedResolution = (
