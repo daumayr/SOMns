@@ -5,6 +5,7 @@ import com.oracle.truffle.api.RootCallTarget;
 import com.oracle.truffle.api.dsl.GenerateNodeFactory;
 import com.oracle.truffle.api.dsl.Specialization;
 
+import som.Output;
 import som.interpreter.SomLanguage;
 import som.interpreter.Types;
 import som.interpreter.actors.Actor;
@@ -16,11 +17,11 @@ import som.interpreter.actors.EventualMessage.PromiseSendMessage;
 import som.interpreter.actors.EventualSendNode;
 import som.interpreter.actors.SPromise;
 import som.interpreter.actors.SPromise.SResolver;
-import som.interpreter.objectstorage.ClassFactory;
 import som.primitives.actors.PromisePrims;
 import som.vm.constants.Classes;
 import som.vm.constants.Nil;
 import som.vmobjects.SBlock;
+import som.vmobjects.SClass;
 import som.vmobjects.SSymbol;
 import tools.concurrency.TracingActors.TracingActor;
 import tools.snapshot.SnapshotBackend;
@@ -32,12 +33,12 @@ import tools.snapshot.deserialization.FixupInformation;
 @GenerateNodeFactory
 public abstract class MessageSerializationNode extends AbstractSerializationNode {
 
-  public MessageSerializationNode(final ClassFactory factory) {
-    super(factory);
+  public MessageSerializationNode(final SClass clazz) {
+    super(clazz);
   }
 
   public MessageSerializationNode() {
-    super(Classes.messageClass.getInstanceFactory());
+    super(Classes.messageClass);
   }
 
   protected static final int COMMONALITY_BYTES = 7;
@@ -82,13 +83,13 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
       sb.putByteAt(base, (byte) args.length);
       for (int i = 0; i < args.length; i++) {
         if (args[i] == null) {
-          if (!sb.getRecord().containsObject(Nil.nilObject)) {
+          if (!sb.getRecord().containsObjectUnsync(Nil.nilObject)) {
             Classes.nilClass.serialize(Nil.nilObject, sb);
           }
           sb.putLongAt((base + 1) + i * Long.BYTES,
               sb.getRecord().getObjectPointer(Nil.nilObject));
         } else {
-          if (!sb.getRecord().containsObject(args[i])) {
+          if (!sb.getRecord().containsObjectUnsync(args[i])) {
             Types.getClassOf(args[i]).serialize(args[i], sb);
           }
           sb.putLongAt((base + 1) + i * Long.BYTES, sb.getRecord().getObjectPointer(args[i]));
@@ -114,7 +115,7 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
     Object[] args = dm.getArgs();
 
     int payload = COMMONALITY_BYTES + Long.BYTES + 1 + (args.length * Long.BYTES);
-    int base = sb.addMessage(payload);
+    int base = sb.addMessage(payload, dm);
     long start = base - SnapshotBuffer.CLASS_ID_SIZE;
 
     doCommonalities(MessageType.DirectMessage, dm.getSelector(), (TracingActor) dm.getSender(),
@@ -134,7 +135,7 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
     Object[] args = dm.getArgs();
 
     int payload = COMMONALITY_BYTES + Long.BYTES + 1 + (args.length * Long.BYTES);
-    int base = sb.addMessage(payload);
+    int base = sb.addMessage(payload, dm);
     long start = base - SnapshotBuffer.CLASS_ID_SIZE;
 
     doCommonalities(MessageType.DirectMessageNR, dm.getSelector(),
@@ -154,7 +155,7 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
     Object[] args = dm.getArgs();
 
     int payload = COMMONALITY_BYTES + Long.BYTES + Long.BYTES + 1 + (args.length * Long.BYTES);
-    int base = sb.addMessage(payload);
+    int base = sb.addMessage(payload, dm);
     long start = base - SnapshotBuffer.CLASS_ID_SIZE;
 
     doCommonalities(MessageType.CallbackMessage, dm.getSelector(),
@@ -178,7 +179,7 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
     Object[] args = dm.getArgs();
 
     int payload = COMMONALITY_BYTES + Long.BYTES + 1 + (args.length * Long.BYTES);
-    int base = sb.addMessage(payload);
+    int base = sb.addMessage(payload, dm);
     long start = base - SnapshotBuffer.CLASS_ID_SIZE;
 
     doCommonalities(MessageType.CallbackMessageNR, dm.getSelector(),
@@ -200,12 +201,10 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
     SPromise prom = dm.getPromise();
     TracingActor fsender = (TracingActor) dm.getFinalSender();
     Object[] args = dm.getArgs();
-    Object receiver = args[0];
-    args[0] = dm.getPromise();
 
     int payload = COMMONALITY_BYTES + Long.BYTES + Long.BYTES + Integer.BYTES + 1
         + (args.length * Long.BYTES);
-    int base = sb.addMessage(payload);
+    int base = sb.addMessage(payload, dm);
     long start = base - SnapshotBuffer.CLASS_ID_SIZE;
 
     doCommonalities(MessageType.PromiseMessage, dm.getSelector(),
@@ -220,7 +219,6 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
     base += COMMONALITY_BYTES + Long.BYTES + Long.BYTES + Integer.BYTES;
 
     doArguments(args, base, sb);
-    args[0] = receiver;
 
     return sb.calculateReference(start);
   }
@@ -235,7 +233,7 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
 
     int payload = COMMONALITY_BYTES + Long.BYTES + Integer.BYTES + 1
         + (args.length * Long.BYTES);
-    int base = sb.addMessage(payload);
+    int base = sb.addMessage(payload, dm);
     long start = base - SnapshotBuffer.CLASS_ID_SIZE;
 
     doCommonalities(MessageType.PromiseMessageNR, dm.getSelector(),
@@ -260,7 +258,7 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
     Object[] args = dm.getArgs();
 
     int payload = COMMONALITY_BYTES + Long.BYTES + 1 + (args.length * Long.BYTES);
-    int base = sb.addMessage(payload);
+    int base = sb.addMessage(payload, dm);
     long start = base - SnapshotBuffer.CLASS_ID_SIZE;
 
     serializeResolver(resolver, sb);
@@ -281,7 +279,7 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
     Object[] args = dm.getArgs();
 
     int payload = COMMONALITY_BYTES + 1 + (args.length * Long.BYTES);
-    int base = sb.addMessage(payload);
+    int base = sb.addMessage(payload, dm);
     long start = base - SnapshotBuffer.CLASS_ID_SIZE;
 
     doCommonalities(MessageType.UndeliveredPromiseMessageNR, dm.getSelector(),
@@ -309,6 +307,7 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
     MessageType type = MessageType.getMessageType(bb.get());
     SSymbol selector = SnapshotBackend.getSymbolForId(bb.getShort());
     Actor sender = SnapshotBackend.lookupActor(bb.getInt());
+    assert sender != null;
 
     switch (type) {
       case CallbackMessage:
@@ -347,6 +346,7 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
     }
     Object[] args = parseArguments(bb);
 
+    assert args[0] != null;
     RootCallTarget onReceive = PromisePrims.createReceived((SBlock) args[0]);
     PromiseCallbackMessage pcm =
         new PromiseCallbackMessage(sender, (SBlock) args[0], resolver,
@@ -364,11 +364,12 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
   private DirectMessage deserializeDirect(final SSymbol selector, final Actor sender,
       final DeserializationBuffer bb, final SResolver resolver) {
     Object[] args = parseArguments(bb);
-    RootCallTarget onReceive = EventualSendNode.createOnReceiveCallTarget(selector, null,
+    RootCallTarget onReceive = EventualSendNode.createOnReceiveCallTarget(selector,
+        SomLanguage.getSyntheticSource("Deserialized Message", "Trace").createSection(1),
         SomLanguage.getLanguage(getRootNode()));
 
     DirectMessage dm =
-        new DirectMessage(EventualMessage.getActorCurrentMessageIsExecutionOn(), selector,
+        new DirectMessage(SnapshotBackend.getCurrentActor(), selector,
             args, sender, resolver,
             onReceive, false, false);
 
@@ -390,16 +391,18 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
 
     Actor finalSender = SnapshotBackend.lookupActor(bb.getInt());
     Object[] args = parseArguments(bb);
-    RootCallTarget onReceive = EventualSendNode.createOnReceiveCallTarget(selector, null,
+    RootCallTarget onReceive = EventualSendNode.createOnReceiveCallTarget(selector,
+        SomLanguage.getSyntheticSource("Deserialized Message", "Trace").createSection(1),
         SomLanguage.getLanguage(getRootNode()));
 
     // backup value for resolution.
     Object value = args[0];
 
-    args[0] = prom;
-    if (!(args[0] instanceof SPromise)) {
-      // expects args[0] to be a promise
+    // constructor expects args[0] to be a promise
+    if (prom == null) {
       args[0] = SPromise.createPromise(sender, false, false, null);
+    } else {
+      args[0] = prom;
     }
 
     PromiseSendMessage psm =
@@ -408,7 +411,7 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
     if (pmf != null) {
       pmf.setMessage(psm);
     }
-    psm.resolve(value, EventualMessage.getActorCurrentMessageIsExecutionOn(),
+    psm.resolve(value, SnapshotBackend.getCurrentActor(),
         finalSender);
 
     return psm;
@@ -475,7 +478,10 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
 
     @Override
     public void fixUp(final Object o) {
-      assert pm != null;
+      if (o == null) {
+        Output.println("Test");
+      }
+      assert pm != null && o != null;
       this.pm.setPromise((SPromise) o);
     }
   }

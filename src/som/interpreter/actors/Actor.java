@@ -180,6 +180,25 @@ public class Actor implements Activity {
     doSend(msg, pool);
   }
 
+  public synchronized void sendSnapshotMessage(final EventualMessage msg) {
+    if (firstMessage != null) {
+      appendToMailbox(msg);
+    } else {
+      firstMessage = msg;
+    }
+  }
+
+  public synchronized void executeIfNecessarry(final ForkJoinPool actorPool) {
+    if (firstMessage == null) {
+      return;
+    }
+
+    if (!isExecuting) {
+      isExecuting = true;
+      execute(actorPool);
+    }
+  }
+
   private void doSend(final EventualMessage msg,
       final ForkJoinPool actorPool) {
     assert msg.getTarget() == this;
@@ -286,18 +305,10 @@ public class Actor implements Activity {
         final WebDebugger dbg) {
       assert size > 0;
 
-      if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.TEST_SNAPSHOTS) {
-        SnapshotBuffer sb = currentThread.getSnapshotBuffer();
-        sb.getRecord().handleTodos(sb);
-        firstMessage.serialize(sb);
-      }
       execute(firstMessage, currentThread, dbg);
 
       if (size > 1) {
         for (EventualMessage msg : mailboxExtension) {
-          if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.TEST_SNAPSHOTS) {
-            msg.serialize(currentThread.getSnapshotBuffer());
-          }
           execute(msg, currentThread, dbg);
         }
       }
@@ -337,6 +348,10 @@ public class Actor implements Activity {
       }
 
       return true;
+    }
+
+    public TraceActorContextNode getActorContextNode() {
+      return tracer;
     }
   }
 
@@ -387,6 +402,10 @@ public class Actor implements Activity {
 
     public Actor getCurrentActor() {
       return currentlyExecutingActor;
+    }
+
+    public void setCurrentActorSnapshot(final Actor current) {
+      this.currentlyExecutingActor = current;
     }
   }
 

@@ -46,6 +46,11 @@ import som.vmobjects.SInvokable;
 import som.vmobjects.SObject;
 import som.vmobjects.SObjectWithClass.SObjectWithoutFields;
 import som.vmobjects.SSymbol;
+import tools.concurrency.TracingActors;
+import tools.concurrency.TracingActors.ReplayActor;
+import tools.language.StructuralProbe;
+import tools.snapshot.SnapshotBackend;
+import tools.snapshot.deserialization.SnapshotParser;
 import tools.snapshot.nodes.AbstractArraySerializationNodeGen.ArraySerializationNodeFactory;
 import tools.snapshot.nodes.AbstractArraySerializationNodeGen.TransferArraySerializationNodeFactory;
 import tools.snapshot.nodes.AbstractArraySerializationNodeGen.ValueArraySerializationNodeFactory;
@@ -53,6 +58,7 @@ import tools.snapshot.nodes.AbstractSerializationNode;
 import tools.snapshot.nodes.BlockSerializationNodeFactory;
 import tools.snapshot.nodes.MessageSerializationNodeFactory;
 import tools.snapshot.nodes.ObjectSerializationNodesFactory.SObjectWithoutFieldsSerializationNodeFactory;
+import tools.snapshot.nodes.ObjectSerializationNodesFactory.UninitializedObjectSerializationNodeFactory;
 import tools.snapshot.nodes.PrimitiveSerializationNodesFactory.BooleanSerializationNodeFactory;
 import tools.snapshot.nodes.PrimitiveSerializationNodesFactory.ClassSerializationNodeFactory;
 import tools.snapshot.nodes.PrimitiveSerializationNodesFactory.DoubleSerializationNodeFactory;
@@ -102,6 +108,11 @@ public final class ObjectSystem {
     this.compiler = compiler;
     structuralProbe = probe;
     loadedModules = EconomicMap.create();
+    if (VmSettings.SNAPSHOTS_ENABLED) {
+      // List is not modified, only used at program termination to know which modules need to
+      // be loaded in replay
+      SnapshotBackend.registerLoadedModules(loadedModules);
+    }
     this.vm = vm;
   }
 
@@ -156,6 +167,8 @@ public final class ObjectSystem {
       return loadedModules.get(uri);
     }
 
+    // System.out.println("Loaded: " + uri);
+
     MixinDefinition module;
     try {
       module = compiler.compileModule(source, structuralProbe);
@@ -165,6 +178,10 @@ public final class ObjectSystem {
       vm.errorExit(e.toString());
       throw new IOException(e);
     }
+  }
+
+  public EconomicMap<URI, MixinDefinition> getLoadedModulesForSnapshot() {
+    return loadedModules;
   }
 
   private SObjectWithoutFields constructVmMirror() {
@@ -415,6 +432,8 @@ public final class ObjectSystem {
     // these classes are not exposed in Newspeak directly, and thus, do not yet have a class
     // factory
     setDummyClassFactory(Classes.messageClass, MessageSerializationNodeFactory.getInstance());
+    setDummyClassFactory(Classes.frameClass,
+        UninitializedObjectSerializationNodeFactory.getInstance());
     setDummyClassFactory(Classes.methodClass,
         SInvokableSerializationNodeFactory.getInstance());
 
@@ -483,6 +502,10 @@ public final class ObjectSystem {
   }
 
   private int handlePromiseResult(final SPromise promise) {
+    if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.REPLAY) {
+      SnapshotBackend.registerResultPromise(promise);
+    }
+
     // This is an attempt to prevent to get stuck indeterminately.
     // We check whether there is activity on any of the pools.
     // And, we exit when either the main promise is resolved, or an exit was requested.
@@ -530,6 +553,10 @@ public final class ObjectSystem {
     Object platform = platformModule.instantiateObject(platformClass, vmMirror);
     ObjectTransitionSafepoint.INSTANCE.unregister();
 
+    if (VmSettings.SNAPSHOTS_ENABLED) {
+      SnapshotBackend.initialize(vm);
+    }
+
     SSymbol start = Symbols.symbolFor("start");
     SourceSection source;
 
@@ -565,6 +592,25 @@ public final class ObjectSystem {
       e.printStackTrace();
       return Launcher.EXIT_WITH_ERROR;
     }
+  }
+
+  @TruffleBoundary
+  public int executeApplicationFromSnapshot(final SObjectWithoutFields vmMirror) {
+    mainThreadCompleted = new CompletableFuture<>();
+    Output.println("Parsing Snapshot...");
+    ObjectTransitionSafepoint.INSTANCE.register();
+    Object platform = platformModule.instantiateObject(platformClass, vmMirror);
+    ObjectTransitionSafepoint.INSTANCE.unregister();
+
+    SnapshotBackend.initialize(vm);
+    SnapshotParser.inflate(vm);
+
+    Output.println(
+        "Finished restoring snapshot with " + SnapshotParser.getObjectCnt() + " Objects");
+    ReplayActor.scheduleAllActors(vm.getActorPool());
+
+    SPromise result = SnapshotParser.getResultPromise();
+    return handlePromiseResult(result);
   }
 
   @TruffleBoundary

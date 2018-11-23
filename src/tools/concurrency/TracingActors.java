@@ -5,7 +5,6 @@ import java.util.LinkedList;
 import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Queue;
-import java.util.WeakHashMap;
 import java.util.concurrent.ForkJoinPool;
 import java.util.function.BiConsumer;
 
@@ -42,7 +41,7 @@ public class TracingActors {
       this.version = 0;
       assert this.activityId >= 0;
       if (VmSettings.SNAPSHOTS_ENABLED) {
-        snapshotRecord = new SnapshotRecord();
+        snapshotRecord = new SnapshotRecord(this);
       }
     }
 
@@ -94,6 +93,14 @@ public class TracingActors {
       return nextDataID++;
     }
 
+    public synchronized int peekDataId() {
+      return nextDataID;
+    }
+
+    public TraceActorContextNode getActorContextNode() {
+      return this.executor.getActorContextNode();
+    }
+
     public boolean isStepToNextTurn() {
       return stepToNextTurn;
     }
@@ -107,7 +114,7 @@ public class TracingActors {
      * For testing purposes.
      */
     public void replaceSnapshotRecord() {
-      this.snapshotRecord = new SnapshotRecord();
+      this.snapshotRecord = new SnapshotRecord(this);
     }
 
     @Override
@@ -161,7 +168,7 @@ public class TracingActors {
 
     static {
       if (VmSettings.REPLAY) {
-        actorList = new WeakHashMap<>();
+        actorList = new HashMap<>();
       }
     }
 
@@ -249,6 +256,12 @@ public class TracingActors {
       }
     }
 
+    public static void scheduleAllActors(final ForkJoinPool actorPool) {
+      for (ReplayActor ra : actorList.values()) {
+        ra.executeIfNecessarry(actorPool);
+      }
+    }
+
     protected boolean replayCanProcess(final EventualMessage msg) {
       if (!VmSettings.REPLAY) {
         return true;
@@ -304,6 +317,7 @@ public class TracingActors {
           final WebDebugger dbg) {
         assert actor instanceof ReplayActor;
         assert size > 0;
+        final ReplayActor a = (ReplayActor) actor;
 
         final ReplayActor a = (ReplayActor) actor;
 

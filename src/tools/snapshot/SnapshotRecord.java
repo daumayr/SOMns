@@ -3,9 +3,12 @@ package tools.snapshot;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 import org.graalvm.collections.EconomicMap;
-import org.graalvm.collections.EconomicSet;
+
+import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 
 import som.interpreter.Types;
+import som.interpreter.actors.EventualMessage.PromiseMessage;
+import tools.concurrency.TracingActors.TracingActor;
 
 
 public class SnapshotRecord {
@@ -14,7 +17,8 @@ public class SnapshotRecord {
    * We can get the location of the serialized object in the trace
    */
   private final EconomicMap<Object, Long> entries;
-  private final EconomicSet<Long>         messageOffsets;
+  protected final TracingActor            owner;
+  private int                             msgCnt;
 
   /**
    * This list is used to keep track of references to unserialized objects in the actor owning
@@ -27,16 +31,35 @@ public class SnapshotRecord {
    */
   private final ConcurrentLinkedQueue<FarRefTodo> externalReferences;
 
-  public SnapshotRecord() {
+  public SnapshotRecord(final TracingActor owner) {
     this.entries = EconomicMap.create();
-    this.messageOffsets = EconomicSet.create();
     this.externalReferences = new ConcurrentLinkedQueue<>();
+    this.owner = owner;
+    msgCnt = 0;
   }
 
-  public boolean containsObject(final Object o) {
+  public long getMessageIdentifier() {
+    long result = (((long) owner.getActorId()) << 32) | msgCnt;
+    msgCnt++;
+    return result;
+  }
+
+  /**
+   * only use this in the actor that owns this record (only the owner adds entries).
+   */
+  @TruffleBoundary
+  public boolean containsObjectUnsync(final Object o) {
     return entries.containsKey(o);
   }
 
+  @TruffleBoundary
+  public boolean containsObject(final Object o) {
+    synchronized (entries) {
+      return entries.containsKey(o);
+    }
+  }
+
+  @TruffleBoundary
   public long getObjectPointer(final Object o) {
     if (entries.containsKey(o)) {
       return entries.get(o);
@@ -45,10 +68,7 @@ public class SnapshotRecord {
         "Cannot point to unserialized Objects, you are missing a serialization call: " + o);
   }
 
-  public void addMessageEntry(final long offset) {
-    this.messageOffsets.add(offset);
-  }
-
+  @TruffleBoundary
   public void addObjectEntry(final Object o, final long offset) {
     synchronized (entries) {
       entries.put(o, offset);
@@ -56,18 +76,23 @@ public class SnapshotRecord {
   }
 
   public void handleTodos(final SnapshotBuffer sb) {
+    // SnapshotBackend.removeTodo(this);
     while (!externalReferences.isEmpty()) {
       FarRefTodo frt = externalReferences.poll();
 
       // ignore todos from a different snapshot
       if (frt.referer.snapshotVersion == sb.snapshotVersion) {
-        if (!this.containsObject(frt.target)) {
-          Types.getClassOf(frt.target).serialize(frt.target, sb);
+        if (!this.containsObjectUnsync(frt.target)) {
+          if (frt.target instanceof PromiseMessage) {
+            ((PromiseMessage) frt.target).forceSerialize(sb);
+          } else {
+            Types.getClassOf(frt.target).serialize(frt.target, sb);
+          }
         }
-
         frt.resolve(getObjectPointer(frt.target));
       }
     }
+
   }
 
   /**
@@ -89,11 +114,31 @@ public class SnapshotRecord {
     if (l != null) {
       other.putLongAt(destination, l);
     } else {
+      if (externalReferences.isEmpty()) {
+        SnapshotBackend.addUnfinishedTodo(this);
+      }
       externalReferences.offer(new FarRefTodo(other, destination, o));
     }
   }
 
-  private final class FarRefTodo {
+  public void farReferenceMessage(final PromiseMessage pm, final SnapshotBuffer other,
+      final int destination) {
+    Long l;
+    synchronized (entries) {
+      l = entries.get(pm);
+    }
+
+    if (l != null) {
+      other.putLongAt(destination, l);
+    } else {
+      if (externalReferences.isEmpty()) {
+        SnapshotBackend.addUnfinishedTodo(this);
+      }
+      externalReferences.offer(new FarRefTodo(other, destination, pm));
+    }
+  }
+
+  public static final class FarRefTodo {
     private final SnapshotBuffer referer;
     private final int            referenceOffset;
     final Object                 target;

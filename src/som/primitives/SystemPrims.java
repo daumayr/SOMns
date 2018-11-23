@@ -75,7 +75,7 @@ import tools.snapshot.deserialization.DeserializationBuffer;
 public final class SystemPrims {
 
   /** File extension for SOMns extensions with Java code. */
-  private static final String EXTENSION_EXT = ".jar";
+  public static final String EXTENSION_EXT = ".jar";
 
   @CompilationFinal public static SObjectWithClass SystemModule;
 
@@ -414,7 +414,7 @@ public final class SystemPrims {
         SnapshotBuffer sb = new SnapshotBuffer(atp);
         ta.replaceSnapshotRecord();
 
-        if (!sb.getRecord().containsObject(receiver)) {
+        if (!sb.getRecord().containsObjectUnsync(receiver)) {
           SClass clazz = Types.getClassOf(receiver);
           clazz.serialize(receiver, sb);
           DeserializationBuffer bb = sb.getBuffer();

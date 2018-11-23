@@ -467,6 +467,15 @@
       <travis target="replay-tests" />
     </target>
 
+    <target name="snapshot-replay-tests" depends="">
+      <exec executable="tests/snapshot-replay/test.sh" failonerror="true">
+          <arg value="1" />
+      </exec>
+      <exec executable="tests/snapshot-replay/test.sh" failonerror="true">
+          <arg value="2" />
+      </exec>
+    </target>
+
     <target name="snapshot-tests" depends="compile">
       <travis target="snapshot-tests" start="Tests Snapshotting" />
       <exec executable="tests/snapshot/test.sh" failonerror="true">

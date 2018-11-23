@@ -142,6 +142,29 @@ public class SPromise extends SObjectWithClass {
     this.value = value;
   }
 
+  public final void resolveFromSnapshot(final Object value, final Resolution resolutionState,
+      final Actor resolver, final boolean schedule) {
+    assert value != null;
+    this.value = value;
+    this.resolutionState = resolutionState;
+    ForkJoinPool pool;
+    pool = SomLanguage.getCurrent().getVM().getActorPool();
+
+    if (schedule) {
+      if (resolutionState == Resolution.SUCCESSFUL) {
+        SResolver.scheduleAllWhenResolvedUnsync(this, value, resolver, pool, haltOnResolution,
+            null);
+      } else {
+        assert resolutionState == Resolution.ERRONEOUS;
+        SResolver.scheduleAllOnErrorUnsync(this, value, resolver, pool, haltOnResolution);
+      }
+      // resolveChainedPromisesUnsync(resolutionState, this, resolver, current, actorPool,
+      // haltOnResolution,
+      // whenResolvedProfile);
+    }
+
+  }
+
   public long getPromiseId() {
     return 0;
   }
@@ -154,8 +177,8 @@ public class SPromise extends SObjectWithClass {
     assert promiseClass == null || cls == null;
     promiseClass = cls;
     if (VmSettings.SNAPSHOTS_ENABLED) {
-      ClassFactory group = promiseClass.getInstanceFactory();
-      group.getSerializer().replace(PromiseSerializationNodeFactory.create(group));
+      promiseClass.getSerializer()
+                  .replace(PromiseSerializationNodeFactory.create(promiseClass));
     }
   }
 
@@ -711,8 +734,8 @@ public class SPromise extends SObjectWithClass {
       resolverClass = cls;
 
       if (VmSettings.SNAPSHOTS_ENABLED) {
-        ClassFactory group = resolverClass.getInstanceFactory();
-        group.getSerializer().replace(ResolverSerializationNodeFactory.create(group));
+        resolverClass.getSerializer()
+                     .replace(ResolverSerializationNodeFactory.create(resolverClass));
       }
     }
 
@@ -804,7 +827,7 @@ public class SPromise extends SObjectWithClass {
         // because after resolving the promise, all clients will schedule their
         // callbacks/msg themselves
         synchronized (p) {
-          assert p.assertNotCompleted();
+          // assert p.assertNotCompleted();
           // TODO: is this correct? can we just resolve chained promises like this? this means,
           // their state changes twice. I guess it is ok, not sure about synchronization
           // thought. They are created as 'chained', and then there is the resolute propagation
