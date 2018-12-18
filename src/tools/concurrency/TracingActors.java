@@ -8,6 +8,7 @@ import java.util.Queue;
 import java.util.concurrent.ForkJoinPool;
 import java.util.function.BiConsumer;
 
+import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
 import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 
 import som.VM;
@@ -26,9 +27,10 @@ public class TracingActors {
   public static class TracingActor extends Actor {
     protected final long     activityId;
     protected int            nextDataID;
-    protected SnapshotRecord snapshotRecord;
     private int              traceBufferId;
     protected int            version;
+
+    @CompilationFinal protected SnapshotRecord snapshotRecord;
 
     /**
      * Flag that indicates if a step-to-next-turn action has been made in the previous message.
