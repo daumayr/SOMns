@@ -12,6 +12,7 @@ import som.interpreter.SomLanguage;
 import som.interpreter.actors.Actor.ActorProcessingThread;
 import som.interpreter.actors.SPromise.SResolver;
 import som.vm.VmSettings;
+import som.vmobjects.SSymbol;
 import tools.concurrency.KomposTrace;
 import tools.concurrency.TracingActors.TracingActor;
 import tools.debugger.WebDebugger;
@@ -36,7 +37,8 @@ public abstract class ReceivedRootNode extends RootNode {
   private final SourceSection sourceSection;
 
   protected ReceivedRootNode(final SomLanguage language,
-      final SourceSection sourceSection, final FrameDescriptor frameDescriptor) {
+      final SourceSection sourceSection, final FrameDescriptor frameDescriptor,
+      final SSymbol selector) {
     super(language, frameDescriptor);
     assert sourceSection != null;
     this.vm = language.getVM();
@@ -47,7 +49,7 @@ public abstract class ReceivedRootNode extends RootNode {
     }
     this.sourceSection = sourceSection;
     if (VmSettings.SNAPSHOTS_ENABLED) {
-      serializer = MessageSerializationNodeFactory.create();
+      serializer = MessageSerializationNodeFactory.create(selector);
     } else {
       serializer = null;
     }
@@ -69,7 +71,19 @@ public abstract class ReceivedRootNode extends RootNode {
     if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.TEST_SNAPSHOTS) {
       SnapshotBuffer sb = currentThread.getSnapshotBuffer();
       sb.getRecord().handleTodos(sb);
-      long loc = msg.serialize(sb);
+
+      long loc;
+      if (sb.needsToBeSnapshot(msg.getMessageId())) {
+        // Not sure if this is optimized, worst case need to duplicate this for all messages
+        if (sb.getRecord().containsObject(msg)) {
+          return sb.getRecord().getObjectPointer(msg);
+        }
+        loc = serializer.execute(msg, sb);
+      } else {
+        // need to be careful, might interfere with promise serialization...
+        loc = -1;
+      }
+
       if (loc != -1) {
         sb.getOwner().addMessageLocation(
             ((TracingActor) msg.getTarget()).getSnapshotRecord().getMessageIdentifier(),
