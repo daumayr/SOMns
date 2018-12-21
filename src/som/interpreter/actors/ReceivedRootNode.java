@@ -4,18 +4,25 @@ import com.oracle.truffle.api.CompilerDirectives;
 import com.oracle.truffle.api.frame.FrameDescriptor;
 import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.nodes.RootNode;
+import com.oracle.truffle.api.profiles.ValueProfile;
 import com.oracle.truffle.api.source.SourceSection;
 
 import som.VM;
 import som.interpreter.SArguments;
 import som.interpreter.SomLanguage;
+import som.interpreter.actors.Actor.ActorProcessingThread;
 import som.interpreter.actors.SPromise.SResolver;
+import som.primitives.ObjectPrims.ClassPrim;
+import som.primitives.ObjectPrimsFactory.ClassPrimFactory;
 import som.vm.VmSettings;
+import som.vmobjects.SSymbol;
 import tools.concurrency.KomposTrace;
+import tools.concurrency.TracingActors.TracingActor;
 import tools.debugger.WebDebugger;
 import tools.debugger.entities.DynamicScopeType;
 import tools.replay.nodes.TraceMessageNode;
 import tools.replay.nodes.TraceMessageNodeGen;
+import tools.snapshot.SnapshotBuffer;
 import tools.snapshot.nodes.MessageSerializationNode;
 import tools.snapshot.nodes.MessageSerializationNodeFactory;
 
@@ -28,12 +35,17 @@ public abstract class ReceivedRootNode extends RootNode {
   @Child protected TraceMessageNode         msgTracer = TraceMessageNodeGen.create();
   @Child protected MessageSerializationNode serializer;
 
+  @Child protected ClassPrim classPrim;
+
   private final VM            vm;
   protected final WebDebugger dbg;
   private final SourceSection sourceSection;
 
+  private final ValueProfile msgClass;
+
   protected ReceivedRootNode(final SomLanguage language,
-      final SourceSection sourceSection, final FrameDescriptor frameDescriptor) {
+      final SourceSection sourceSection, final FrameDescriptor frameDescriptor,
+      final SSymbol selector) {
     super(language, frameDescriptor);
     assert sourceSection != null;
     this.vm = language.getVM();
@@ -44,9 +56,13 @@ public abstract class ReceivedRootNode extends RootNode {
     }
     this.sourceSection = sourceSection;
     if (VmSettings.SNAPSHOTS_ENABLED) {
-      serializer = MessageSerializationNodeFactory.create();
+      serializer = MessageSerializationNodeFactory.create(selector);
+      classPrim = ClassPrimFactory.create(null);
+      msgClass = ValueProfile.createClassProfile();
     } else {
       serializer = null;
+      classPrim = null;
+      msgClass = null;
     }
   }
 
@@ -56,6 +72,31 @@ public abstract class ReceivedRootNode extends RootNode {
   @Override
   public final Object execute(final VirtualFrame frame) {
     EventualMessage msg = (EventualMessage) SArguments.rcvr(frame);
+
+    ActorProcessingThread currentThread = (ActorProcessingThread) Thread.currentThread();
+
+    if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.TEST_SNAPSHOTS) {
+      SnapshotBuffer sb = currentThread.getSnapshotBuffer();
+      sb.getRecord().handleObjectsReferencedFromFarRefs(sb, classPrim);
+
+      long loc;
+      if (sb.needsToBeSnapshot(msg.getMessageId())) {
+        // Not sure if this is optimized, worst case need to duplicate this for all messages
+        if (sb.getRecord().containsObject(msg)) {
+          return sb.getRecord().getObjectPointer(msg);
+        }
+        loc = serializer.execute(msg, sb);
+      } else {
+        // need to be careful, might interfere with promise serialization...
+        loc = -1;
+      }
+
+      if (loc != -1) {
+        sb.getOwner().addMessageLocation(
+            ((TracingActor) msgClass.profile(msg).getTarget()).getSnapshotRecord().getMessageIdentifier(),
+            sb.calculateReference(loc));
+      }
+    }
 
     boolean haltOnResolver;
     boolean haltOnResolution;

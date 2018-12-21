@@ -33,7 +33,6 @@ import tools.debugger.entities.ActivityType;
 import tools.debugger.entities.DynamicScopeType;
 import tools.replay.actors.ActorExecutionTrace;
 import tools.replay.nodes.TraceActorContextNode;
-import tools.snapshot.SnapshotBuffer;
 
 
 /**
@@ -272,7 +271,7 @@ public class Actor implements Activity {
       t.currentlyExecutingActor = actor;
 
       if (VmSettings.ACTOR_TRACING) {
-        ActorExecutionTrace.recordActorContext((TracingActor) actor, tracer);
+        ActorExecutionTrace.recordActorContext((TracingActor) actor, t, tracer);
       } else if (VmSettings.KOMPOS_TRACING) {
         KomposTrace.currentActivity(actor);
       }
@@ -295,28 +294,10 @@ public class Actor implements Activity {
         final WebDebugger dbg) {
       assert size > 0;
 
-      if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.TEST_SNAPSHOTS) {
-        SnapshotBuffer sb = currentThread.getSnapshotBuffer();
-        sb.getRecord().handleTodos(sb);
-        long loc = firstMessage.serialize(sb);
-        if (loc != -1) {
-          sb.getOwner().addMessageLocation(
-              ((TracingActor) actor).getSnapshotRecord().getMessageIdentifier(),
-              sb.calculateReference(loc));
-        }
-      }
       execute(firstMessage, currentThread, dbg);
 
       if (size > 1) {
         for (EventualMessage msg : mailboxExtension) {
-          if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.TEST_SNAPSHOTS) {
-            long loc = msg.serialize(currentThread.getSnapshotBuffer());
-            if (loc != -1) {
-              currentThread.addMessageLocation(
-                  ((TracingActor) actor).getSnapshotRecord().getMessageIdentifier(),
-                  currentThread.getSnapshotBuffer().calculateReference(loc));
-            }
-          }
           execute(msg, currentThread, dbg);
         }
       }

@@ -4,8 +4,11 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 
 import org.graalvm.collections.EconomicMap;
 
-import som.interpreter.Types;
+import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
+
 import som.interpreter.actors.EventualMessage.PromiseMessage;
+import som.primitives.ObjectPrims.ClassPrim;
+import som.vmobjects.SClass;
 import tools.concurrency.TracingActors.TracingActor;
 
 
@@ -27,7 +30,7 @@ public class SnapshotRecord {
    * SnapshotBuffer is then known and used to fix the reference (writing a long in another
    * buffer at a specified location).
    */
-  private final ConcurrentLinkedQueue<FarRefTodo> externalReferences;
+  private final ConcurrentLinkedQueue<DeferredFarRefSerialization> externalReferences;
 
   public SnapshotRecord(final TracingActor owner) {
     this.entries = EconomicMap.create();
@@ -45,16 +48,19 @@ public class SnapshotRecord {
   /**
    * only use this in the actor that owns this record (only the owner adds entries).
    */
+  @TruffleBoundary
   public boolean containsObjectUnsync(final Object o) {
     return entries.containsKey(o);
   }
 
+  @TruffleBoundary
   public boolean containsObject(final Object o) {
     synchronized (entries) {
       return entries.containsKey(o);
     }
   }
 
+  @TruffleBoundary
   public long getObjectPointer(final Object o) {
     if (entries.containsKey(o)) {
       return entries.get(o);
@@ -63,16 +69,19 @@ public class SnapshotRecord {
         "Cannot point to unserialized Objects, you are missing a serialization call: " + o);
   }
 
+  @TruffleBoundary
   public void addObjectEntry(final Object o, final long offset) {
     synchronized (entries) {
       entries.put(o, offset);
     }
   }
 
-  public void handleTodos(final SnapshotBuffer sb) {
+  @TruffleBoundary // TODO: convert to an approach that constructs a cache
+  public void handleObjectsReferencedFromFarRefs(final SnapshotBuffer sb,
+      final ClassPrim classPrim) {
     // SnapshotBackend.removeTodo(this);
     while (!externalReferences.isEmpty()) {
-      FarRefTodo frt = externalReferences.poll();
+      DeferredFarRefSerialization frt = externalReferences.poll();
 
       // ignore todos from a different snapshot
       if (frt.referer.snapshotVersion == sb.snapshotVersion) {
@@ -80,13 +89,13 @@ public class SnapshotRecord {
           if (frt.target instanceof PromiseMessage) {
             ((PromiseMessage) frt.target).forceSerialize(sb);
           } else {
-            Types.getClassOf(frt.target).serialize(frt.target, sb);
+            SClass clazz = classPrim.executeEvaluated(frt.target);
+            clazz.serialize(frt.target, sb);
           }
         }
         frt.resolve(getObjectPointer(frt.target));
       }
     }
-
   }
 
   /**
@@ -100,44 +109,47 @@ public class SnapshotRecord {
    */
   public void farReference(final Object o, final SnapshotBuffer other,
       final int destination) {
-    Long l;
-    synchronized (entries) {
-      l = entries.get(o);
-    }
+    Long l = getEntrySynced(o);
 
     if (l != null) {
       other.putLongAt(destination, l);
     } else {
       if (externalReferences.isEmpty()) {
-        SnapshotBackend.addUnfinishedTodo(this);
+        SnapshotBackend.deferSerialization(this);
       }
-      externalReferences.offer(new FarRefTodo(other, destination, o));
+      externalReferences.offer(new DeferredFarRefSerialization(other, destination, o));
     }
   }
 
   public void farReferenceMessage(final PromiseMessage pm, final SnapshotBuffer other,
       final int destination) {
-    Long l;
-    synchronized (entries) {
-      l = entries.get(pm);
-    }
+    Long l = getEntrySynced(pm);
 
     if (l != null) {
       other.putLongAt(destination, l);
     } else {
       if (externalReferences.isEmpty()) {
-        SnapshotBackend.addUnfinishedTodo(this);
+        SnapshotBackend.deferSerialization(this);
       }
-      externalReferences.offer(new FarRefTodo(other, destination, pm));
+      externalReferences.offer(new DeferredFarRefSerialization(other, destination, pm));
     }
   }
 
-  public static final class FarRefTodo {
+  @TruffleBoundary
+  private Long getEntrySynced(final Object o) {
+    Long l;
+    synchronized (entries) {
+      l = entries.get(o);
+    }
+    return l;
+  }
+
+  public static final class DeferredFarRefSerialization {
     private final SnapshotBuffer referer;
     private final int            referenceOffset;
     final Object                 target;
 
-    FarRefTodo(final SnapshotBuffer referer, final int referenceOffset,
+    DeferredFarRefSerialization(final SnapshotBuffer referer, final int referenceOffset,
         final Object target) {
       this.referer = referer;
       this.referenceOffset = referenceOffset;

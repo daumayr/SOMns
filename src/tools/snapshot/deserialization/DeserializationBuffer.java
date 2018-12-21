@@ -72,7 +72,7 @@ public class DeserializationBuffer {
   }
 
   private void printPosition(final long current) {
-    // System.out.print(depth + " - " + getAbsolute(current) + " in " + (current >> 48) + " ");
+    // Output.print(depth + " - " + getAbsolute(current) + " in " + (current >> 48) + " ");
   }
 
   public static long getAbsolute(final long current) {
@@ -85,7 +85,7 @@ public class DeserializationBuffer {
 
   private void printClass(final int cId) {
     // SSymbol sym = SnapshotBackend.getSymbolForId((short) (cId >> 16));
-    // System.out.println(
+    // Output.println(
     // " " + sym.getString() + ": "
     // + ((short) cId));
   }
@@ -122,7 +122,7 @@ public class DeserializationBuffer {
       return null;
     }
 
-    Object o = clazz.getSerializer().deserialize(this);
+    Object o = clazz.deserialize(this);
 
     depth--;
     if (o != null) {
@@ -156,7 +156,7 @@ public class DeserializationBuffer {
         return null;
       }
 
-      Object o = clazz.getSerializer().deserialize(this);
+      Object o = clazz.deserialize(this);
       depth--;
       // continue with current object
       position(current);

@@ -3,6 +3,7 @@ package som.interpreter.actors;
 import java.util.Arrays;
 
 import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
+import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 import com.oracle.truffle.api.RootCallTarget;
 import com.oracle.truffle.api.source.SourceSection;
 
@@ -79,21 +80,10 @@ public abstract class EventualMessage {
     return onReceive.getRootNode().getSourceSection();
   }
 
-  public long serialize(final SnapshotBuffer sb) {
-    ReceivedRootNode rm = (ReceivedRootNode) this.onReceive.getRootNode();
-
-    if (sb.needsToBeSnapshot(getMessageId())) {
-      // Not sure if this is optimized, worst case need to duplicate this for all messages
-      if (sb.getRecord().containsObject(this)) {
-        return sb.getRecord().getObjectPointer(this);
-      }
-      return rm.getSerializer().execute(this, sb);
-    } else {
-      // need to be careful, might interfere with promise serialization...
-      return -1;
-    }
-  }
-
+  @TruffleBoundary
+  // TODO: can we establish a structure for this? at the moment, we have an
+  // indirection here, which leads us to a serializer that's not compilation
+  // final, I think
   public long forceSerialize(final SnapshotBuffer sb) {
     if (sb.getRecord().containsObject(this)) {
       return sb.getRecord().getObjectPointer(this);

@@ -20,6 +20,7 @@ import org.graalvm.collections.EconomicMap;
 import org.graalvm.collections.MapCursor;
 
 import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
+import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 
 import som.VM;
 import som.compiler.MixinDefinition;
@@ -29,6 +30,8 @@ import som.interpreter.actors.EventualMessage;
 import som.interpreter.actors.SPromise;
 import som.interpreter.nodes.InstantiationNode.ClassInstantiationNode;
 import som.interpreter.objectstorage.ClassFactory;
+import som.primitives.ObjectPrims.ClassPrim;
+import som.primitives.ObjectPrimsFactory.ClassPrimFactory;
 import som.vm.Symbols;
 import som.vm.VmSettings;
 import som.vmobjects.SClass;
@@ -42,7 +45,6 @@ import tools.concurrency.TracingBackend;
 import tools.language.StructuralProbe;
 import tools.snapshot.deserialization.DeserializationBuffer;
 import tools.snapshot.deserialization.SnapshotParser;
-import tools.snapshot.nodes.ObjectSerializationNodesFactory.UninitializedObjectSerializationNodeFactory;
 
 
 public class SnapshotBackend {
@@ -54,7 +56,7 @@ public class SnapshotBackend {
   private static final ConcurrentLinkedQueue<SnapshotBuffer>      buffers;
   private static final ConcurrentLinkedQueue<ArrayList<Long>>     messages;
   private static final EconomicMap<SClass, TracingActor>          classEnclosures;
-  private static final ConcurrentHashMap<SnapshotRecord, Integer> unfinishedSerializations;
+  private static final ConcurrentHashMap<SnapshotRecord, Integer> deferredSerializations;
 
   // this is a reference to the list maintained by the objectsystem
   private static EconomicMap<URI, MixinDefinition> loadedModules;
@@ -69,7 +71,7 @@ public class SnapshotBackend {
       buffers = new ConcurrentLinkedQueue<>();
       messages = new ConcurrentLinkedQueue<>();
       classEnclosures = EconomicMap.create();
-      unfinishedSerializations = new ConcurrentHashMap<>();
+      deferredSerializations = new ConcurrentHashMap<>();
       // identity int, includes mixin info
       // long outer
       // essentially this is about capturing the outer
@@ -81,7 +83,7 @@ public class SnapshotBackend {
       buffers = new ConcurrentLinkedQueue<>();
       messages = new ConcurrentLinkedQueue<>();
       classEnclosures = EconomicMap.create();
-      unfinishedSerializations = new ConcurrentHashMap<>();
+      deferredSerializations = new ConcurrentHashMap<>();
     } else {
       classDictionary = null;
       symbolDictionary = null;
@@ -89,7 +91,7 @@ public class SnapshotBackend {
       buffers = null;
       messages = null;
       classEnclosures = null;
-      unfinishedSerializations = null;
+      deferredSerializations = null;
     }
   }
 
@@ -157,7 +159,7 @@ public class SnapshotBackend {
 
     // Step 1: install placeholder
     classDictionary.put(id, null);
-    // System.out.println("creating Class" + mixin.getIdentifier() + " : " + (short) id);
+    // Output.println("creating Class" + mixin.getIdentifier() + " : " + (short) id);
 
     // Step 2: get outer object
     SObjectWithClass enclosingObject = SnapshotParser.getOuterForClass(id);
@@ -168,8 +170,7 @@ public class SnapshotBackend {
         mixin.getSuperclassAndMixinResolutionInvokable().createCallTarget()
              .call(new Object[] {enclosingObject});
 
-    ClassFactory factory = mixin.createClassFactory(superclassAndMixins, false, false, false,
-        UninitializedObjectSerializationNodeFactory.getInstance());
+    ClassFactory factory = mixin.createClassFactory(superclassAndMixins, false, false, false);
 
     SClass result = new SClass(enclosingObject,
         ClassInstantiationNode.instantiateMetaclassClass(factory, enclosingObject));
@@ -178,6 +179,7 @@ public class SnapshotBackend {
     // Step 4: fixup
     Object current = classDictionary.get(id);
     if (current instanceof LinkedList) {
+      @SuppressWarnings("unchecked")
       LinkedList<Long> todo = (LinkedList<Long>) current;
       DeserializationBuffer db = SnapshotParser.getDeserializationBuffer();
       for (long ref : todo) {
@@ -293,12 +295,18 @@ public class SnapshotBackend {
     messages.add(messageLocations);
   }
 
-  public static void addUnfinishedTodo(final SnapshotRecord sr) {
-    unfinishedSerializations.put(sr, 0);
+  /**
+   * Serialization of objects referenced from far references need to be deferred to the owning
+   * actor.
+   */
+  @TruffleBoundary
+  public static void deferSerialization(final SnapshotRecord sr) {
+    deferredSerializations.put(sr, 0);
   }
 
-  public static void removeTodo(final SnapshotRecord sr) {
-    unfinishedSerializations.remove(sr);
+  @TruffleBoundary
+  public static void completedSerialization(final SnapshotRecord sr) {
+    deferredSerializations.remove(sr);
   }
 
   public static StructuralProbe getProbe() {
@@ -317,6 +325,8 @@ public class SnapshotBackend {
   /**
    * Persist the current snapshot to a file.
    */
+  private static final ClassPrim classPrim = ClassPrimFactory.create(null);
+
   public static void writeSnapshot() {
     if (buffers.size() == 0) {
       return;
@@ -332,12 +342,12 @@ public class SnapshotBackend {
       // handle the unfinished serialization.
       SnapshotBuffer buffer = buffers.peek();
 
-      while (!unfinishedSerializations.isEmpty()) {
-        for (SnapshotRecord sr : unfinishedSerializations.keySet()) {
+      while (!deferredSerializations.isEmpty()) {
+        for (SnapshotRecord sr : deferredSerializations.keySet()) {
           assert sr.owner != null;
-          unfinishedSerializations.remove(sr);
+          deferredSerializations.remove(sr);
           buffer.owner.setCurrentActorSnapshot(sr.owner);
-          sr.handleTodos(buffer);
+          sr.handleObjectsReferencedFromFarRefs(buffer, classPrim);
         }
       }
 
