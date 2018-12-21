@@ -27,10 +27,12 @@ package som.vmobjects;
 
 import static som.interpreter.TruffleCompiler.transferToInterpreterAndInvalidate;
 
+import java.net.URI;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
 import com.oracle.truffle.api.CallTarget;
+import com.oracle.truffle.api.CompilerDirectives;
 import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
 import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 import com.oracle.truffle.api.RootCallTarget;
@@ -189,6 +191,7 @@ public class SInvokable extends SAbstractObject implements Dispatchable {
 
   public FrameSerializationNode getFrameSerializer() {
     if (frameSerializer == null) {
+      CompilerDirectives.transferToInterpreter();
       FrameDescriptor fd = ((Method) invokable).getLexicalScope().getOuterMethod()
                                                .getMethod().getFrameDescriptor();
       frameSerializer = FrameSerializationNodeFactory.create(fd);
@@ -217,13 +220,18 @@ public class SInvokable extends SAbstractObject implements Dispatchable {
     return "method";
   }
 
+  @TruffleBoundary
+  private URI getURI(final SourceSection source) {
+    return source.getSource().getURI();
+  }
+
   public SSymbol getIdentifier() {
     if (holder != null) {
       return Symbols.symbolFor(
           holder.getIdentifier().getString() + "." + signature.getString());
     } else if (invokable.getSourceSection() != null) {
       // TODO find a better solution than charIndex
-      Path absolute = Paths.get(invokable.getSourceSection().getSource().getURI());
+      Path absolute = Paths.get(getURI(invokable.getSourceSection()));
       Path relative =
           Paths.get(VmSettings.BASE_DIRECTORY).toAbsolutePath().relativize(absolute);
       return Symbols.symbolFor(relative.toString() + ":"

@@ -9,16 +9,23 @@ import java.io.InputStreamReader;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.PriorityQueue;
 
 import org.graalvm.collections.EconomicMap;
 
 import som.VM;
 import som.interpreter.actors.EventualMessage;
+import som.interpreter.actors.EventualMessage.PromiseMessage;
 import som.interpreter.actors.SPromise;
+import som.interpreter.actors.SPromise.Resolution;
+import som.interpreter.actors.SPromise.SResolver;
+import som.interpreter.actors.SPromise.STracingPromise;
 import som.vm.Symbols;
 import som.vm.VmSettings;
 import som.vm.constants.Nil;
+import som.vmobjects.SClass;
 import som.vmobjects.SObjectWithClass;
 import tools.concurrency.TracingActors.ReplayActor;
 import tools.snapshot.SnapshotBackend;
@@ -35,15 +42,17 @@ public final class SnapshotParser {
   private SPromise                                             resultPromise;
   private ReplayActor                                          currentActor;
   private VM                                                   vm;
-  private EconomicMap<Integer, Long>                           outerMap;
+  private EconomicMap<Integer, Long>                           classLocations;
   private DeserializationBuffer                                db;
   private int                                                  objectcnt;
+  private HashSet<EventualMessage>                             sentPMsgs;
 
   private SnapshotParser(final VM vm) {
     this.vm = vm;
     this.heapOffsets = EconomicMap.create();
     this.messageLocations = EconomicMap.create();
-    this.outerMap = EconomicMap.create();
+    this.classLocations = EconomicMap.create();
+    this.sentPMsgs = new HashSet<>();
   }
 
   // preparations to be done before anything else
@@ -89,8 +98,16 @@ public final class SnapshotParser {
       for (int i = 0; i < numOuters; i++) {
         ensureRemaining(Long.BYTES * 2, b, channel);
         int identity = (int) b.getLong();
-        long outer = b.getLong();
-        outerMap.put(identity, outer);
+        long classLocation = b.getLong();
+        classLocations.put(identity, classLocation);
+      }
+
+      long numResolutions = b.getLong();
+      ArrayList<Long> lostResolutions = new ArrayList<>();
+      for (int i = 0; i < numResolutions; i++) {
+        ensureRemaining(Long.BYTES, b, channel);
+        long resolver = b.getLong();
+        lostResolutions.add(resolver);
       }
 
       ensureRemaining(Long.BYTES * 2, b, channel);
@@ -112,6 +129,7 @@ public final class SnapshotParser {
       }
 
       db = new FileDeserializationBuffer(channel);
+      ArrayList<PromiseMessage> messagesNeedingFixup = new ArrayList<>();
 
       // now let's go through the message list actor by actor, deserialize each message, and
       // add it to the actors mailbox.
@@ -123,8 +141,55 @@ public final class SnapshotParser {
           currentActor = ReplayActor.getActorWithId(id);
           EventualMessage em = (EventualMessage) db.deserializeWithoutContext(ml.location);
           db.doUnserialized();
+
+          if (em instanceof PromiseMessage) {
+            if (em.getArgs()[0] instanceof SPromise) {
+              STracingPromise prom = (STracingPromise) ((PromiseMessage) em).getPromise();
+              if (prom.isCompleted()) {
+                ((PromiseMessage) em).resolve(prom.getValueForSnapshot(), currentActor,
+                    SnapshotBackend.lookupActor(prom.getResolvingActor()));
+              } else {
+                messagesNeedingFixup.add((PromiseMessage) em);
+              }
+            }
+          }
+
+          if (em.getResolver() != null && em.getResolver().getPromise().isCompleted()
+              && em.getArgs()[0] instanceof SClass) {
+            SPromise cp = em.getResolver().getPromise();
+            // need to unresolve this promise...
+            cp.unresolveFromSnapshot(Resolution.UNRESOLVED);
+          }
+
           currentActor.sendSnapshotMessage(em);
           ml = locations.poll();
+        }
+      }
+
+      for (long entry : lostResolutions) {
+        db.position(entry);
+        long resolverLoc = db.getLong();
+        long resultLoc = db.getLong();
+
+        int resolvingActor = db.getInt();
+        byte resolutionState = db.get();
+
+        SResolver resolver = (SResolver) db.deserializeWithoutContext(resolverLoc);
+        Object result = db.deserializeWithoutContext(resultLoc);
+
+        STracingPromise prom = (STracingPromise) resolver.getPromise();
+        if (!prom.isCompleted()) {
+          prom.resolveFromSnapshot(result, Resolution.values()[resolutionState],
+              SnapshotBackend.lookupActor(resolvingActor), true);
+          prom.setResolvingActorForSnapshot(resolvingActor);
+        }
+      }
+
+      for (PromiseMessage em : messagesNeedingFixup) {
+        STracingPromise prom = (STracingPromise) em.getPromise();
+        if (em.getArgs()[0] instanceof SPromise) {
+          em.resolve(prom.getValueForSnapshot(), prom.getOwner(),
+              SnapshotBackend.lookupActor(prom.getResolvingActor()));
         }
       }
 
@@ -133,7 +198,7 @@ public final class SnapshotParser {
         resultPromise = (SPromise) db.deserialize(resultPromiseLocation);
       }
 
-      outerMap = null;
+      classLocations = null;
       messageLocations = null;
 
       assert resultPromise != null : "The result promise was not found";
@@ -147,6 +212,10 @@ public final class SnapshotParser {
       objectcnt = db.getNumObjects();
       db = null;
     }
+  }
+
+  public static boolean addPMsg(final EventualMessage msg) {
+    return parser.sentPMsgs.add(msg);
   }
 
   private static void parseSymbols() {
@@ -177,14 +246,14 @@ public final class SnapshotParser {
   public static SObjectWithClass getOuterForClass(final int identity) {
     SObjectWithClass result;
 
-    if (parser.outerMap.containsKey(identity)) {
-      long reference = parser.outerMap.get(identity);
+    if (parser.classLocations.containsKey(identity)) {
+      long reference = parser.db.readOuterForClass(parser.classLocations.get(identity));
       Object o = parser.db.getReference(reference);
-      long pos = ((int) reference) + SnapshotParser.getFileOffset(reference);
       if (!parser.db.allreadyDeserialized(reference)) {
         result = (SObjectWithClass) parser.db.deserialize(reference);
-      } else if (parser.db.needsFixup(o)) {
+      } else if (DeserializationBuffer.needsFixup(o)) {
         result = null;
+        // OuterFixup!!
       } else {
         result = (SObjectWithClass) o;
       }

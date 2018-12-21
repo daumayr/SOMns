@@ -16,6 +16,7 @@ import som.vmobjects.SObject;
 import tools.snapshot.SnapshotBackend;
 import tools.snapshot.deserialization.FixupInformation.FixupList;
 import tools.snapshot.nodes.ObjectSerializationNodes.SObjectSerializationNode.SlotFixup;
+import tools.snapshot.nodes.PrimitiveSerializationNodes.ClassSerializationNode;
 
 
 public class DeserializationBuffer {
@@ -99,17 +100,30 @@ public class DeserializationBuffer {
     return result;
   }
 
+  public long readOuterForClass(final long classLocation) {
+    long previous = this.position();
+    this.position(classLocation);
+    this.getInt();// consume the classclass information
+    long result = ClassSerializationNode.readOuterLocation(this);
+    this.position(previous);
+    return result;
+  }
+
   public Object deserializeWithoutContext(final long current) {
+    if (deserialized.containsKey(current)) {
+      Object o = deserialized.get(current);
+      if (!needsFixup(o)) {
+        return o;
+      }
+    } else {
+      // to avoid endless loop, when null is read we replace it with a linked list containing
+      // fixup information
+      deserialized.put(current, null);
+    }
+
     lastRef = current;
     printPosition(current);
     this.position(current);
-
-    // to avoid endless loop, when null is read we replace it with a linked list containing
-    // fixup information
-
-    if (!deserialized.containsKey(current)) {
-      deserialized.put(current, null);
-    }
 
     int cId = getInt();
     printClass(cId);
@@ -122,20 +136,23 @@ public class DeserializationBuffer {
       return null;
     }
 
-    Object o = clazz.getSerializer().deserialize(this);
+    Object o = clazz.deserialize(this);
 
     depth--;
     if (o != null) {
-      fixUpIfNecessary(current, o);
-      deserialized.put(current, o);
+      putAndFixUpIfNecessary(current, o);
     }
     return o;
   }
 
+  /**
+   * This causes the lastRef to stay overwritten for fixup purposes!
+   * @return
+   */
   public Object getReference() {
     long reference = getLong();
-
     lastRef = reference;
+
     if (!deserialized.containsKey(reference)) {
       long current = position();
       printPosition(reference);
@@ -156,12 +173,13 @@ public class DeserializationBuffer {
         return null;
       }
 
-      Object o = clazz.getSerializer().deserialize(this);
+      Object o = clazz.deserialize(this);
       depth--;
       // continue with current object
       position(current);
-      fixUpIfNecessary(reference, o);
-      deserialized.put(reference, o);
+      if (o != null) {
+        putAndFixUpIfNecessary(reference, o);
+      }
       return o;
     } else {
       printPosition(reference);
@@ -187,8 +205,7 @@ public class DeserializationBuffer {
       depth--;
       // continue with current object
       position(current);
-      fixUpIfNecessary(reference, o);
-      deserialized.put(reference, o);
+      putAndFixUpIfNecessary(reference, o);
       return o;
     } else {
       return deserialized.get(reference);
@@ -212,9 +229,11 @@ public class DeserializationBuffer {
     }
   }
 
-  public synchronized void fixUpIfNecessary(final long reference, final Object result) {
+  public synchronized void putAndFixUpIfNecessary(final long reference, final Object result) {
     assert result != null;
     Object ref = deserialized.get(reference);
+    deserialized.put(reference, result);
+
     if (ref instanceof FixupList) {
       // we have fixup information, this means that this object is part of a circular
       // relationship
@@ -236,8 +255,7 @@ public class DeserializationBuffer {
   }
 
   public synchronized void putObject(final SObject o) {
-    fixUpIfNecessary(lastRef, o);
-    deserialized.put(lastRef, o);
+    putAndFixUpIfNecessary(lastRef, o);
   }
 
   public synchronized void installObjectFixup(final SObject o, final CachedSlotWrite write) {

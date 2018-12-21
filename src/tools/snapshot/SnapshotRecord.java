@@ -9,6 +9,7 @@ import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 import som.interpreter.actors.EventualMessage.PromiseMessage;
 import som.primitives.ObjectPrims.ClassPrim;
 import som.vmobjects.SClass;
+import tools.concurrency.TracingActivityThread;
 import tools.concurrency.TracingActors.TracingActor;
 
 
@@ -20,6 +21,7 @@ public class SnapshotRecord {
   private final EconomicMap<Object, Long> entries;
   protected final TracingActor            owner;
   private int                             msgCnt;
+  private int                             snapshotVersion;
 
   /**
    * This list is used to keep track of references to unserialized objects in the actor owning
@@ -30,12 +32,13 @@ public class SnapshotRecord {
    * SnapshotBuffer is then known and used to fix the reference (writing a long in another
    * buffer at a specified location).
    */
-  private final ConcurrentLinkedQueue<DeferredFarRefSerialization> externalReferences;
+  private ConcurrentLinkedQueue<DeferredFarRefSerialization> externalReferences;
 
   public SnapshotRecord(final TracingActor owner) {
     this.entries = EconomicMap.create();
     this.externalReferences = new ConcurrentLinkedQueue<>();
     this.owner = owner;
+    this.snapshotVersion = SnapshotBackend.getSnapshotVersion();
     msgCnt = 0;
   }
 
@@ -82,9 +85,10 @@ public class SnapshotRecord {
     // SnapshotBackend.removeTodo(this);
     while (!externalReferences.isEmpty()) {
       DeferredFarRefSerialization frt = externalReferences.poll();
+      assert frt != null;
 
       // ignore todos from a different snapshot
-      if (frt.referer.snapshotVersion == sb.snapshotVersion) {
+      if (frt.isCurrent()) {
         if (!this.containsObjectUnsync(frt.target)) {
           if (frt.target instanceof PromiseMessage) {
             ((PromiseMessage) frt.target).forceSerialize(sb);
@@ -109,11 +113,25 @@ public class SnapshotRecord {
    */
   public void farReference(final Object o, final SnapshotBuffer other,
       final int destination) {
+
+    // Have to do this to avoid a memory leak, actors that are inactive for a long time, but
+    // farReffed by others ended up keeping alive a large number of SnapshotBuffers.
+
+    /*
+     * ConcurrentLinkedQueue<DeferredFarRefSerialization> oldReferences = externalReferences;
+     * externalReferences = new ConcurrentLinkedQueue<>();
+     * for (DeferredFarRefSerialization deffered : oldReferences) {
+     * if (deffered.referer.snapshotVersion == this.snapshotVersion) {
+     * externalReferences.add(deffered);
+     * }
+     * }
+     */
+
     Long l = getEntrySynced(o);
 
-    if (l != null) {
+    if (l != null && other != null) {
       other.putLongAt(destination, l);
-    } else {
+    } else if (l == null) {
       if (externalReferences.isEmpty()) {
         SnapshotBackend.deferSerialization(this);
       }
@@ -144,20 +162,46 @@ public class SnapshotRecord {
     return l;
   }
 
+  public int getSnapshotVersion() {
+    return snapshotVersion;
+  }
+
+  public void resetRecordifNecessary(final int newVersion) {
+    if (this.snapshotVersion == newVersion) {
+      return;
+    }
+
+    synchronized (entries) {
+      this.entries.clear();
+    }
+
+    this.msgCnt = 0;
+    this.snapshotVersion = newVersion;
+  }
+
   public static final class DeferredFarRefSerialization {
-    private final SnapshotBuffer referer;
-    private final int            referenceOffset;
-    final Object                 target;
+    final Object         target;
+    final SnapshotBuffer referer;
+    final int            referenceOffset;
 
     DeferredFarRefSerialization(final SnapshotBuffer referer, final int referenceOffset,
         final Object target) {
+      this.target = target;
       this.referer = referer;
       this.referenceOffset = referenceOffset;
-      this.target = target;
     }
 
     public void resolve(final long targetOffset) {
-      referer.putLongAt(referenceOffset, targetOffset);
+      if (referer != null) {
+        referer.putLongAt(referenceOffset, targetOffset);
+      }
+    }
+
+    public boolean isCurrent() {
+      if (referer == null || !(Thread.currentThread() instanceof TracingActivityThread)) {
+        return true;
+      }
+      return referer.snapshotVersion == TracingActivityThread.currentThread().getSnapshotId();
     }
   }
 }

@@ -15,6 +15,7 @@ import com.oracle.truffle.api.nodes.RootNode;
 
 import som.VM;
 import som.interpreter.SomLanguage;
+import som.interpreter.actors.EventualMessage.PromiseMessage;
 import som.interpreter.objectstorage.ObjectTransitionSafepoint;
 import som.primitives.ObjectPrims.IsValue;
 import som.vm.Activity;
@@ -35,7 +36,7 @@ import tools.replay.actors.ActorExecutionTrace;
 import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
 import tools.replay.nodes.TraceContextNode;
 import tools.replay.nodes.TraceContextNodeGen;
-import tools.snapshot.SnapshotBuffer;
+import tools.snapshot.deserialization.SnapshotParser;
 
 
 /**
@@ -181,6 +182,13 @@ public class Actor implements Activity {
   }
 
   public synchronized void sendSnapshotMessage(final EventualMessage msg) {
+    if (msg instanceof PromiseMessage) {
+      if (!SnapshotParser.addPMsg(msg)) {
+        // avoid duplicate promise messages
+        return;
+      }
+    }
+
     if (firstMessage != null) {
       appendToMailbox(msg);
     } else {

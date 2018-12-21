@@ -11,6 +11,7 @@ import som.VM;
 import som.interpreter.SArguments;
 import som.interpreter.SomLanguage;
 import som.interpreter.actors.Actor.ActorProcessingThread;
+import som.interpreter.actors.EventualMessage.PromiseSendMessage;
 import som.interpreter.actors.SPromise.SResolver;
 import som.primitives.ObjectPrims.ClassPrim;
 import som.primitives.ObjectPrimsFactory.ClassPrimFactory;
@@ -22,7 +23,9 @@ import tools.debugger.WebDebugger;
 import tools.debugger.entities.DynamicScopeType;
 import tools.replay.TraceRecord;
 import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
+import tools.snapshot.SnapshotBackend;
 import tools.snapshot.SnapshotBuffer;
+import tools.snapshot.SnapshotRecord;
 import tools.snapshot.nodes.MessageSerializationNode;
 import tools.snapshot.nodes.MessageSerializationNodeFactory;
 
@@ -79,26 +82,17 @@ public abstract class ReceivedRootNode extends RootNode {
 
     ActorProcessingThread currentThread = (ActorProcessingThread) Thread.currentThread();
 
-    if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.TEST_SNAPSHOTS) {
+    if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.TEST_SNAPSHOTS && !VmSettings.REPLAY) {
       SnapshotBuffer sb = currentThread.getSnapshotBuffer();
+      sb.getRecord().resetRecordifNecessary(currentThread.getSnapshotId());
       sb.getRecord().handleObjectsReferencedFromFarRefs(sb, classPrim);
 
-      long loc;
       if (sb.needsToBeSnapshot(msg.getMessageId())) {
-        // Not sure if this is optimized, worst case need to duplicate this for all messages
-        if (sb.getRecord().containsObject(msg)) {
-          return sb.getRecord().getObjectPointer(msg);
-        }
-        loc = serializer.execute(msg, sb);
-      } else {
-        // need to be careful, might interfere with promise serialization...
-        loc = -1;
-      }
-
-      if (loc != -1) {
-        sb.getOwner().addMessageLocation(
-            ((TracingActor) msgClass.profile(msg).getTarget()).getSnapshotRecord().getMessageIdentifier(),
-            sb.calculateReference(loc));
+        long msgIdentifier =
+            ((TracingActor) msgClass.profile(msg).getTarget()).getSnapshotRecord()
+                                                              .getMessageIdentifier();
+        long location = serializeMessageIfNecessary(msg, sb);
+        sb.getOwner().addMessageLocation(msgIdentifier, location);
       }
     }
 
@@ -125,6 +119,25 @@ public abstract class ReceivedRootNode extends RootNode {
     try {
       return executeBody(frame, msg, haltOnResolver, haltOnResolution);
     } finally {
+      if (VmSettings.ACTOR_TRACING) {
+        msgTracer.execute(msg);
+      }
+
+      // this has to be after the msgTracing, as otherwise we will expect messages we shoudln't
+      // expect.
+      // also the getSnapshotbuffer is necessary as it will be a new one.
+      if (VmSettings.SNAPSHOTS_ENABLED) {
+        if (msg.getResolver() != null
+            && currentThread.getSnapshotId() != SnapshotBackend.getSnapshotVersion()) {
+          // Snapshot was trigged while executing this message
+          // we need to serialize the promise and mark it.
+          SnapshotBuffer sb = currentThread.getSnapshotBuffer();
+          SResolver resolver = msg.getResolver();
+
+          SnapshotBackend.registerLostResolution(resolver, sb);
+        }
+      }
+
       if (VmSettings.KOMPOS_TRACING) {
         KomposTrace.scopeEnd(DynamicScopeType.TURN);
       }
@@ -134,6 +147,26 @@ public abstract class ReceivedRootNode extends RootNode {
   @Override
   public SourceSection getSourceSection() {
     return sourceSection;
+  }
+
+  private final long serializeMessageIfNecessary(final EventualMessage msg,
+      final SnapshotBuffer sb) {
+
+    if (sb.getRecord().containsObject(msg)) {
+      // location already known
+      return sb.getRecord().getObjectPointer(msg);
+    } else if (msg instanceof PromiseSendMessage) {
+      // check promise owner
+      PromiseSendMessage pm = (PromiseSendMessage) msg;
+      SnapshotRecord sr = ((TracingActor) pm.getPromise().getOwner()).getSnapshotRecord();
+      if (sr.containsObject(msg)) {
+        // location known by promise owner
+        return sr.getObjectPointer(msg);
+      }
+    }
+
+    // message wasn't serialized before
+    return sb.calculateReference(serializer.execute(msg, sb));
   }
 
   protected final void resolvePromise(final VirtualFrame frame,

@@ -52,6 +52,11 @@ public class TracingActors {
       this.activityId = id;
     }
 
+    @Override
+    public String toString() {
+      return super.toString() + " #" + actorId;
+    }
+
     public final int getActorId() {
       // TODO: remove after rebasing snapshot PR
       throw new UnsupportedOperationException("Please remove this call and use getId instead");
@@ -184,7 +189,7 @@ public class TracingActors {
       return dataSource;
     }
 
-    public void setDataSource(final BiConsumer<Short, Integer> ds) {
+    public void setDataSource(final ExternalDataSource ds) {
       if (dataSource != null) {
         throw new UnsupportedOperationException("Allready has a datasource!");
       }

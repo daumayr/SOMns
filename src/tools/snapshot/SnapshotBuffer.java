@@ -2,6 +2,7 @@ package tools.snapshot;
 
 import com.oracle.truffle.api.CompilerDirectives;
 
+import som.interpreter.SomLanguage;
 import som.interpreter.actors.Actor.ActorProcessingThread;
 import som.interpreter.actors.EventualMessage;
 import som.vm.VmSettings;
@@ -42,12 +43,27 @@ public class SnapshotBuffer extends TraceBuffer {
     return (owner.getThreadId() << THREAD_SHIFT) | start;
   }
 
+  public int reserveSpace(final int bytes) {
+    int oldPos = this.position;
+    this.position += bytes;
+    return oldPos;
+  }
+
   public int addObject(final Object o, final SClass clazz, final int payload) {
     assert !getRecord().containsObjectUnsync(o) : "Object serialized multiple times";
 
     int oldPos = this.position;
     getRecord().addObjectEntry(o, calculateReference(oldPos));
 
+    if (clazz.getSOMClass() == Classes.classClass) {
+      TracingActor owner = clazz.getOwnerOfOuter();
+      if (owner == null) {
+        owner = (TracingActor) SomLanguage.getCurrent().getVM().getMainActor();
+      }
+
+      assert owner != null;
+      owner.getSnapshotRecord().farReference(clazz, null, 0);
+    }
     this.putIntAt(this.position, clazz.getIdentity());
     this.position += CLASS_ID_SIZE + payload;
     return oldPos + CLASS_ID_SIZE;
@@ -61,6 +77,16 @@ public class SnapshotBuffer extends TraceBuffer {
     int oldPos = this.position;
     getRecord().addObjectEntry(o, calculateReference(oldPos));
 
+    if (clazz.getSOMClass() == Classes.classClass) {
+      TracingActor owner = clazz.getOwnerOfOuter();
+      if (owner == null) {
+        owner = (TracingActor) SomLanguage.getCurrent().getVM().getMainActor();
+      }
+
+      assert owner != null;
+      owner.getSnapshotRecord().farReference(clazz, null, 0);
+    }
+
     this.putIntAt(this.position, clazz.getIdentity());
     this.position += CLASS_ID_SIZE + (FIELD_SIZE * fieldCnt);
     return oldPos + CLASS_ID_SIZE;
@@ -71,6 +97,8 @@ public class SnapshotBuffer extends TraceBuffer {
     // (either from a promise or a mailbox)
     int oldPos = this.position;
     TracingActor ta = (TracingActor) owner.getCurrentActor();
+    assert !getRecord().containsObjectUnsync(
+        msg) : "Message serialized twice, and on the same actor";
     getRecord().addObjectEntry(msg, calculateReference(oldPos));
     // owner.addMessageLocation(ta.getActorId(), calculateReference(oldPos));
 

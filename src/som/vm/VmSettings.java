@@ -21,6 +21,7 @@ public class VmSettings implements Settings {
   public static final boolean ASSISTED_DEBUGGING;
 
   public static final boolean TRACE_SMALL_IDS;
+  public static final boolean USE_TRACING_ACTORS;
   public static final boolean SNAPSHOTS_ENABLED;
   public static final boolean TRACK_SNAPSHOT_ENTITIES;
   public static final boolean TEST_SNAPSHOTS;
@@ -82,6 +83,8 @@ public class VmSettings implements Settings {
     ANSI_COLOR_IN_OUTPUT = getBool("som.useAnsiColoring", false);
 
     ASSISTED_DEBUGGING_BREAKPOINTS = getInteger("som.assistedDebuggingBp", -1);
+    USE_TRACING_ACTORS = ACTOR_TRACING || SNAPSHOTS_ENABLED;
+
     BUFFER_SIZE = getInteger("som.buffSize", 1024 * 1024);
     BUFFERS_PER_THREAD = getInteger("som.buffPerThread", 4);
     BUFFER_TIMEOUT = getInteger("som.buffDelay", 50);

@@ -35,22 +35,25 @@ import com.oracle.truffle.api.dsl.NodeFactory;
 import com.oracle.truffle.api.frame.MaterializedFrame;
 import com.oracle.truffle.api.nodes.ExplodeLoop;
 
+import som.Output;
 import som.VM;
 import som.compiler.AccessModifier;
 import som.compiler.MixinBuilder.MixinDefinitionId;
 import som.compiler.MixinDefinition;
 import som.compiler.MixinDefinition.ClassSlotDefinition;
 import som.compiler.MixinDefinition.SlotDefinition;
+import som.interpreter.actors.Actor.ActorProcessingThread;
 import som.interpreter.nodes.dispatch.Dispatchable;
 import som.interpreter.objectstorage.ClassFactory;
 import som.interpreter.objectstorage.ObjectLayout;
 import som.vm.VmSettings;
 import som.vm.constants.Classes;
-import tools.concurrency.TracingActivityThread;
+import tools.concurrency.TracingActors.TracingActor;
 import tools.snapshot.SnapshotBackend;
 import tools.snapshot.SnapshotBuffer;
+import tools.snapshot.deserialization.DeserializationBuffer;
 import tools.snapshot.nodes.AbstractSerializationNode;
-import tools.snapshot.nodes.SerializerRootNode;
+import tools.snapshot.nodes.MessageSerializationNode;
 
 
 // TODO: should we move more of that out of SClass and use the corresponding
@@ -73,7 +76,8 @@ public final class SClass extends SObjectWithClass {
 
   @CompilationFinal private ClassFactory instanceClassGroup; // the factory for this object
   @CompilationFinal private int          identity;
-  @CompilationFinal SerializerRootNode   serializationRoot;
+
+  @CompilationFinal private TracingActor ownerOfOuter;
 
   protected final SObjectWithClass enclosingObject;
   private final MaterializedFrame  context;
@@ -201,22 +205,12 @@ public final class SClass extends SObjectWithClass {
     if (VmSettings.SNAPSHOTS_ENABLED) {
       identity = instanceClassGroup.createIdentity();
 
-      if (!VmSettings.REPLAY && !VmSettings.TEST_SNAPSHOTS && enclosingObject != null
-          && Thread.currentThread() instanceof TracingActivityThread) {
-        // enclosingObject.getSOMClass().serialize(enclosingObject,
-        // TracingActivityThread.currentThread().getSnapshotBuffer());
-        // long outer = SnapshotBackend.getCurrentActor().getSnapshotRecord()
-        // .getObjectPointer(enclosingObject);
-        // we can find out the classslot identity by looking for a class with an outer that
-        // matches the current class...
-        // -> no need to go through all the slots in search of initialized class slots.
-        SnapshotBackend.registerClassEnclosure(this);
-      }
+      if (!VmSettings.REPLAY && !VmSettings.TEST_SNAPSHOTS && enclosingObject != null) {
 
-      NodeFactory<? extends AbstractSerializationNode> factory =
-          classFactory.getSerializerFactory();
-      if (factory != null) {
-        this.serializationRoot = new SerializerRootNode(factory.createNode(this));
+        if (Thread.currentThread() instanceof ActorProcessingThread) {
+          this.ownerOfOuter =
+              (TracingActor) ((ActorProcessingThread) Thread.currentThread()).getCurrentActor();
+        }
       }
     }
     // assert instanceClassGroup != null || !ObjectSystem.isInitialized();
@@ -224,6 +218,20 @@ public final class SClass extends SObjectWithClass {
     if (VmSettings.TRACK_SNAPSHOT_ENTITIES) {
       SnapshotBackend.registerClass(this);
     }
+  }
+
+  public TracingActor getOwnerOfOuter() {
+    return ownerOfOuter;
+  }
+
+  public void customizeSerializerFactory(
+      final NodeFactory<? extends AbstractSerializationNode> factory,
+      final AbstractSerializationNode deserializer) {
+    instanceClassGroup.customizeSerialization(factory, deserializer);
+  }
+
+  public NodeFactory<? extends AbstractSerializationNode> getSerializerFactory() {
+    return instanceClassGroup.getSerializerFactory();
   }
 
   /**
@@ -379,15 +387,22 @@ public final class SClass extends SObjectWithClass {
   }
 
   public void serialize(final Object o, final SnapshotBuffer sb) {
+    if (instanceClassGroup == null) {
+      Output.errorPrintln(this.toString());
+    }
+
     assert instanceClassGroup != null;
     if (!sb.getRecord().containsObjectUnsync(o)) {
-      getSerializer().execute(o, sb);
+      instanceClassGroup.serialize(o, sb);
     }
   }
 
-  public AbstractSerializationNode getSerializer() {
-    assert serializationRoot != null : "Unclear what's wrong, but MessageSerializationNode can be null for Classes.messageClass";
-    return serializationRoot.getSerializer();
+  public Object deserialize(final DeserializationBuffer bb) {
+    if (this == Classes.messageClass) {
+      return MessageSerializationNode.deserializeMessage(bb);
+    }
+
+    return this.instanceClassGroup.deserialize(bb, this);
   }
 
   public int getIdentity() {

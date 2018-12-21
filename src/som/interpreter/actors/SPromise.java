@@ -13,7 +13,6 @@ import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 import com.oracle.truffle.api.profiles.ValueProfile;
 import com.oracle.truffle.api.source.SourceSection;
 
-import som.interpreter.SomLanguage;
 import som.interpreter.actors.EventualMessage.PromiseMessage;
 import som.interpreter.objectstorage.ClassFactory;
 import som.vm.Activity;
@@ -145,24 +144,35 @@ public class SPromise extends SObjectWithClass {
   public final void resolveFromSnapshot(final Object value, final Resolution resolutionState,
       final Actor resolver, final boolean schedule) {
     assert value != null;
-    this.value = value;
+    this.value = owner.wrapForUse(value, resolver, null);
     this.resolutionState = resolutionState;
-    ForkJoinPool pool;
-    pool = SomLanguage.getCurrent().getVM().getActorPool();
 
     if (schedule) {
       if (resolutionState == Resolution.SUCCESSFUL) {
-        SResolver.scheduleAllWhenResolvedUnsync(this, value, resolver, pool, haltOnResolution,
-            null);
+        SResolver.scheduleAllWhenResolvedSnapshot(this, value, resolver);
       } else {
         assert resolutionState == Resolution.ERRONEOUS;
-        SResolver.scheduleAllOnErrorUnsync(this, value, resolver, pool, haltOnResolution);
+        SResolver.scheduleAllOnErrorSnapshot(this, value, resolver);
       }
       // resolveChainedPromisesUnsync(resolutionState, this, resolver, current, actorPool,
       // haltOnResolution,
       // whenResolvedProfile);
     }
+  }
 
+  public final void unresolveFromSnapshot(final Resolution resolutionState) {
+    this.value = null;
+    this.resolutionState = resolutionState;
+
+    if (chainedPromise != null) {
+      chainedPromise.unresolveFromSnapshot(Resolution.CHAINED);
+
+      if (chainedPromiseExt != null) {
+        for (SPromise prom : chainedPromiseExt) {
+          prom.unresolveFromSnapshot(Resolution.CHAINED);
+        }
+      }
+    }
   }
 
   public long getPromiseId() {
@@ -177,8 +187,9 @@ public class SPromise extends SObjectWithClass {
     assert promiseClass == null || cls == null;
     promiseClass = cls;
     if (VmSettings.SNAPSHOTS_ENABLED) {
-      promiseClass.getSerializer()
-                  .replace(PromiseSerializationNodeFactory.create(promiseClass));
+      promiseClass.customizeSerializerFactory(
+          PromiseSerializationNodeFactory.getInstance(),
+          PromiseSerializationNodeFactory.create());
     }
   }
 
@@ -272,6 +283,14 @@ public class SPromise extends SObjectWithClass {
     msg.getTarget().send(msg, actorPool);
   }
 
+  protected final void scheduleCallbacksSnapshot(final Object result,
+      final PromiseMessage msg, final Actor current) {
+
+    assert owner != null;
+    msg.resolve(result, owner, current);
+    msg.getTarget().sendSnapshotMessage(msg);
+  }
+
   public final synchronized void addChainedPromise(final SPromise remote) {
     assert remote != null;
 
@@ -308,6 +327,10 @@ public class SPromise extends SObjectWithClass {
   }
 
   public final boolean assertNotCompleted() {
+    if (VmSettings.SNAPSHOT_REPLAY) {
+      this.unresolveFromSnapshot(Resolution.UNRESOLVED);
+    }
+
     assert !isCompleted() : "Not sure yet what to do with re-resolving of promises? just ignore it? Error?";
     assert value == null : "If it isn't resolved yet, it shouldn't have a value";
     return true;
@@ -362,6 +385,15 @@ public class SPromise extends SObjectWithClass {
   public ArrayList<SPromise> getChainedPromiseExtUnsync() {
     assert VmSettings.SNAPSHOTS_ENABLED;
     return chainedPromiseExt;
+  }
+
+  public boolean hasChainedPromise(final SPromise prom) {
+    if (this.chainedPromise == prom) {
+      return true;
+    } else if (this.chainedPromiseExt != null) {
+      return chainedPromiseExt.contains(prom);
+    }
+    return false;
   }
 
   public static class STracingPromise extends SPromise implements PassiveEntityWithEvents {
@@ -734,8 +766,9 @@ public class SPromise extends SObjectWithClass {
       resolverClass = cls;
 
       if (VmSettings.SNAPSHOTS_ENABLED) {
-        resolverClass.getSerializer()
-                     .replace(ResolverSerializationNodeFactory.create(resolverClass));
+        resolverClass.customizeSerializerFactory(
+            ResolverSerializationNodeFactory.getInstance(),
+            ResolverSerializationNodeFactory.create());
       }
     }
 
@@ -827,7 +860,7 @@ public class SPromise extends SObjectWithClass {
         // because after resolving the promise, all clients will schedule their
         // callbacks/msg themselves
         synchronized (p) {
-          // assert p.assertNotCompleted();
+          assert p.assertNotCompleted();
           // TODO: is this correct? can we just resolve chained promises like this? this means,
           // their state changes twice. I guess it is ok, not sure about synchronization
           // thought. They are created as 'chained', and then there is the resolute propagation
@@ -913,6 +946,43 @@ public class SPromise extends SObjectWithClass {
         promise.scheduleCallbacksOnResolution(result, onError, current, actorPool,
             haltOnResolution);
         scheduleExtensions(promise, onErrorExt, result, current, actorPool, haltOnResolution);
+      }
+    }
+
+    /**
+     * Schedule all whenResolved callbacks for the promise.
+     */
+    protected static void scheduleAllWhenResolvedSnapshot(final SPromise promise,
+        final Object result, final Actor current) {
+      if (promise.whenResolved != null) {
+        promise.scheduleCallbacksSnapshot(result, promise.whenResolved, current);
+        scheduleExtensionsSnapshot(promise, promise.whenResolvedExt, result, current);
+      }
+    }
+
+    /**
+     * Schedule callbacks from the whenResolvedExt extension array.
+     */
+    @TruffleBoundary
+    private static void scheduleExtensionsSnapshot(final SPromise promise,
+        final ArrayList<PromiseMessage> extension,
+        final Object result, final Actor current) {
+      if (extension != null) {
+        for (int i = 0; i < extension.size(); i++) {
+          PromiseMessage callbackOrMsg = extension.get(i);
+          promise.scheduleCallbacksSnapshot(result, callbackOrMsg, current);
+        }
+      }
+    }
+
+    /**
+     * Schedule all onError callbacks for the promise.
+     */
+    protected static void scheduleAllOnErrorSnapshot(final SPromise promise,
+        final Object result, final Actor current) {
+      if (promise.onError != null) {
+        promise.scheduleCallbacksSnapshot(result, promise.onError, current);
+        scheduleExtensionsSnapshot(promise, promise.onErrorExt, result, current);
       }
     }
   }

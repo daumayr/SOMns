@@ -26,11 +26,14 @@ import bd.tools.structure.StructuralProbe;
 import som.compiler.MixinDefinition;
 import som.compiler.MixinDefinition.SlotDefinition;
 import som.compiler.Variable;
+import som.Output;
 import som.VM;
+import som.compiler.MixinDefinition;
+import som.interpreter.Types;
 import som.interpreter.actors.Actor;
-import som.interpreter.actors.Actor.ActorProcessingThread;
 import som.interpreter.actors.EventualMessage;
 import som.interpreter.actors.SPromise;
+import som.interpreter.actors.SPromise.SResolver;
 import som.interpreter.nodes.InstantiationNode.ClassInstantiationNode;
 import som.interpreter.objectstorage.ClassFactory;
 import som.primitives.ObjectPrims.ClassPrim;
@@ -41,13 +44,11 @@ import som.vmobjects.SClass;
 import som.vmobjects.SInvokable;
 import som.vmobjects.SObjectWithClass;
 import som.vmobjects.SSymbol;
-import tools.concurrency.TracingActivityThread;
 import tools.concurrency.TracingActors.ReplayActor;
 import tools.concurrency.TracingActors.TracingActor;
 import tools.concurrency.TracingBackend;
 import tools.snapshot.deserialization.DeserializationBuffer;
 import tools.snapshot.deserialization.SnapshotParser;
-import tools.snapshot.nodes.ObjectSerializationNodesFactory.UninitializedObjectSerializationNodeFactory;
 
 
 public class SnapshotBackend {
@@ -59,10 +60,10 @@ public class SnapshotBackend {
   private static final EconomicMap<Integer, Object>           classDictionary;
   private static final ConcurrentLinkedQueue<SnapshotBuffer>      buffers;
   private static final ConcurrentLinkedQueue<ArrayList<Long>>     messages;
-  private static final EconomicMap<SClass, TracingActor>          classEnclosures;
+  private static final EconomicMap<Integer, Long>                 classLocations;
   private static final ConcurrentHashMap<SnapshotRecord, Integer> deferredSerializations;
 
-  private static final ConcurrentLinkedQueue<SnapshotBuffer> buffers;
+  private static final ArrayList<Long> lostResolutions;
 
   // this is a reference to the list maintained by the objectsystem
   private static EconomicMap<URI, MixinDefinition> loadedModules;
@@ -76,8 +77,9 @@ public class SnapshotBackend {
       probe = new StructuralProbe<>();
       buffers = new ConcurrentLinkedQueue<>();
       messages = new ConcurrentLinkedQueue<>();
-      classEnclosures = EconomicMap.create();
       deferredSerializations = new ConcurrentHashMap<>();
+      lostResolutions = new ArrayList<>();
+      classLocations = null;
       // identity int, includes mixin info
       // long outer
       // essentially this is about capturing the outer
@@ -86,18 +88,20 @@ public class SnapshotBackend {
       classDictionary = null;
       symbolDictionary = null;
       probe = null;
+      classLocations = EconomicMap.create();
       buffers = new ConcurrentLinkedQueue<>();
       messages = new ConcurrentLinkedQueue<>();
-      classEnclosures = EconomicMap.create();
       deferredSerializations = new ConcurrentHashMap<>();
+      lostResolutions = new ArrayList<>();
     } else {
       classDictionary = null;
       symbolDictionary = null;
       probe = null;
+      classLocations = null;
       buffers = null;
       messages = null;
-      classEnclosures = null;
       deferredSerializations = null;
+      lostResolutions = null;
     }
   }
 
@@ -176,8 +180,7 @@ public class SnapshotBackend {
         mixin.getSuperclassAndMixinResolutionInvokable().createCallTarget()
              .call(new Object[] {enclosingObject});
 
-    ClassFactory factory = mixin.createClassFactory(superclassAndMixins, false, false, false,
-        UninitializedObjectSerializationNodeFactory.getInstance());
+    ClassFactory factory = mixin.createClassFactory(superclassAndMixins, false, false, false);
 
     SClass result = new SClass(enclosingObject,
         ClassInstantiationNode.instantiateMetaclassClass(factory, enclosingObject));
@@ -185,16 +188,16 @@ public class SnapshotBackend {
 
     // Step 4: fixup
     Object current = classDictionary.get(id);
+    classDictionary.put(id, result);
+
     if (current instanceof LinkedList) {
       @SuppressWarnings("unchecked")
       LinkedList<Long> todo = (LinkedList<Long>) current;
       DeserializationBuffer db = SnapshotParser.getDeserializationBuffer();
       for (long ref : todo) {
-        db.fixUpIfNecessary(ref, result);
+        db.putAndFixUpIfNecessary(ref, result);
       }
     }
-
-    classDictionary.put(id, result);
     return result;
   }
 
@@ -265,6 +268,12 @@ public class SnapshotBackend {
 
   public static synchronized void startSnapshot() {
     assert VmSettings.SNAPSHOTS_ENABLED;
+    deferredSerializations.clear();
+    lostResolutions.clear();
+    buffers.clear();
+    synchronized (classLocations) {
+      classLocations.clear();
+    }
     snapshotVersion++;
 
     // notify the worker in the tracingbackend about this change.
@@ -345,6 +354,7 @@ public class SnapshotBackend {
       // Write Message Locations
       int offset = writeMessageLocations(fos);
       offset += writeClassEnclosures(fos);
+      offset += writeLostResolutions(fos);
 
       // handle the unfinished serialization.
       SnapshotBuffer buffer = buffers.peek();
@@ -376,27 +386,15 @@ public class SnapshotBackend {
   }
 
   private static int writeClassEnclosures(final FileOutputStream fos) throws IOException {
-    int size = (classEnclosures.size() * 2 + 1) * Long.BYTES;
+    int size = (classLocations.size() * 2 + 1) * Long.BYTES;
     ByteBuffer bb = ByteBuffer.allocate(size).order(ByteOrder.LITTLE_ENDIAN);
 
-    bb.putLong(classEnclosures.size());
-    MapCursor<SClass, TracingActor> cursor = classEnclosures.getEntries();
+    bb.putLong(classLocations.size());
 
-    // just use the first buffer available; that object isn't used anywhere else
-    SnapshotBuffer buffer = buffers.peek();
-
+    MapCursor<Integer, Long> cursor = classLocations.getEntries();
     while (cursor.advance()) {
-      SClass clazz = cursor.getKey();
-      TracingActor owner = cursor.getValue();
-
-      bb.putLong(clazz.getIdentity());
-      SObjectWithClass outer = clazz.getEnclosingObject();
-
-      if (!owner.getSnapshotRecord().containsObjectUnsync(outer)) {
-        buffer.owner.setCurrentActorSnapshot(owner);
-        outer.getSOMClass().serialize(outer, buffer);
-      }
-      bb.putLong(owner.getSnapshotRecord().getObjectPointer(outer));
+      bb.putLong(cursor.getKey());
+      bb.putLong(cursor.getValue());
     }
 
     bb.rewind();
@@ -462,6 +460,26 @@ public class SnapshotBackend {
     return msgSize;
   }
 
+  private static int writeLostResolutions(final FileOutputStream fos) throws IOException {
+    int entryCount = 0;
+    for (ArrayList<Long> al : messages) {
+      assert al.size() % 2 == 0;
+      entryCount += al.size();
+    }
+
+    int size = (lostResolutions.size() + 1) * Long.BYTES;
+    ByteBuffer bb =
+        ByteBuffer.allocate(size).order(ByteOrder.LITTLE_ENDIAN);
+    bb.putLong(lostResolutions.size());
+    for (long l : lostResolutions) {
+      bb.putLong(l);
+    }
+
+    bb.rewind();
+    fos.getChannel().write(bb);
+    return size;
+  }
+
   private static void writeSymbolTable() {
     Collection<SSymbol> symbols = Symbols.getSymbols();
 
@@ -489,11 +507,38 @@ public class SnapshotBackend {
     resultPromise = promise;
   }
 
-  public static void registerClassEnclosure(final SClass clazz) {
-    ActorProcessingThread current =
-        (ActorProcessingThread) TracingActivityThread.currentThread();
-    synchronized (classEnclosures) {
-      classEnclosures.put(clazz, (TracingActor) current.getCurrentActor());
+  public static void registerLostResolution(final SResolver resolver,
+      final SnapshotBuffer sb) {
+
+    SResolver.getResolverClass().serialize(resolver, sb);
+
+    if (!resolver.getPromise().isCompleted()) {
+      Output.println("skipped!!");
+      return;
     }
+
+    Object result = resolver.getPromise().getValueForSnapshot();
+
+    Types.getClassOf(result).serialize(result, sb);
+
+    int base = sb.reserveSpace(Long.BYTES * 2 + Integer.BYTES + 1);
+    synchronized (lostResolutions) {
+      lostResolutions.add(sb.calculateReference(base));
+    }
+
+    sb.putLongAt(base, sb.getRecord().getObjectPointer(resolver));
+    sb.putLongAt(base + Long.BYTES, sb.getRecord().getObjectPointer(result));
+    sb.putIntAt(base + Long.BYTES * 2,
+        ((TracingActor) sb.getOwner().getCurrentActor()).getActorId());
+    sb.putByteAt(base + Long.BYTES * 2 + Integer.BYTES,
+        (byte) resolver.getPromise().getResolutionStateUnsync().ordinal());
+
+  }
+
+  public static void registerClassLocation(final int identity, final long classLocation) {
+    synchronized (classLocations) {
+      classLocations.put(identity, classLocation);
+    }
+
   }
 }

@@ -2,7 +2,9 @@ package tools.snapshot.nodes;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.util.List;
 
+import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 import com.oracle.truffle.api.Truffle;
 import com.oracle.truffle.api.dsl.GenerateNodeFactory;
 import com.oracle.truffle.api.dsl.Specialization;
@@ -17,7 +19,6 @@ import som.interpreter.Types;
 import som.vm.constants.Classes;
 import som.vmobjects.SAbstractObject;
 import som.vmobjects.SBlock;
-import som.vmobjects.SClass;
 import som.vmobjects.SInvokable;
 import tools.snapshot.SnapshotBackend;
 import tools.snapshot.SnapshotBuffer;
@@ -31,10 +32,6 @@ public abstract class BlockSerializationNode extends AbstractSerializationNode {
 
   private static final int SINVOKABLE_SIZE = Short.BYTES;
 
-  public BlockSerializationNode(final SClass clazz) {
-    super(clazz);
-  }
-
   // TODO specialize on different blocks
   @Specialization
   public void serialize(final SBlock block, final SnapshotBuffer sb) {
@@ -42,12 +39,12 @@ public abstract class BlockSerializationNode extends AbstractSerializationNode {
     MaterializedFrame mf = block.getContextOrNull();
 
     if (mf == null) {
-      int base = sb.addObject(block, clazz, SINVOKABLE_SIZE + 1);
+      int base = sb.addObject(block, Classes.blockClass, SINVOKABLE_SIZE + 1);
       SInvokable meth = block.getMethod();
       sb.putShortAt(base, meth.getIdentifier().getSymbolId());
       sb.putByteAt(base + 2, (byte) 0);
     } else {
-      int base = sb.addObject(block, clazz, SINVOKABLE_SIZE + 1 + Long.BYTES);
+      int base = sb.addObject(block, Classes.blockClass, SINVOKABLE_SIZE + 1 + Long.BYTES);
 
       SInvokable meth = block.getMethod();
       sb.putShortAt(base, meth.getIdentifier().getSymbolId());
@@ -139,8 +136,13 @@ public abstract class BlockSerializationNode extends AbstractSerializationNode {
     private final FrameDescriptor frameDescriptor;
 
     protected FrameSerializationNode(final FrameDescriptor frameDescriptor) {
-      super(Classes.frameClass);
       this.frameDescriptor = frameDescriptor;
+    }
+
+    @TruffleBoundary
+    private List<? extends FrameSlot> getFrameslots() {
+      // TODO can we cache this?
+      return frameDescriptor.getSlots();
     }
 
     // Truffle doesn't seem to like me passing a frame, so we pass the entire block
@@ -148,7 +150,10 @@ public abstract class BlockSerializationNode extends AbstractSerializationNode {
     public void serialize(final SBlock block, final SnapshotBuffer sb) {
       MaterializedFrame frame = block.getContext();
       Object[] args = frame.getArguments();
-      int slotCnt = frameDescriptor.getSlots().size();
+
+      List<? extends FrameSlot> slots = getFrameslots();
+
+      int slotCnt = slots.size();
       assert slotCnt < 0xFF : "Too many slots";
       assert args.length < 0xFF : "Too many arguments";
 
@@ -172,7 +177,7 @@ public abstract class BlockSerializationNode extends AbstractSerializationNode {
       sb.putByteAt(base, (byte) slotCnt);
       base++;
 
-      for (FrameSlot slot : frameDescriptor.getSlots()) {
+      for (FrameSlot slot : slots) {
         // assume this is ordered by index
 
         // TODO optimization: MaterializedFrameSerialization Nodes that are associated with the
