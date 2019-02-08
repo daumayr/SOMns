@@ -1,6 +1,7 @@
 package tools.snapshot.nodes;
 
 import com.oracle.truffle.api.Assumption;
+import com.oracle.truffle.api.CompilerDirectives;
 import com.oracle.truffle.api.dsl.Cached;
 import com.oracle.truffle.api.dsl.GenerateNodeFactory;
 import com.oracle.truffle.api.dsl.NodeFactory;
@@ -9,6 +10,9 @@ import com.oracle.truffle.api.nodes.InvalidAssumptionException;
 
 import som.interpreter.Types;
 import som.interpreter.nodes.dispatch.DispatchGuard;
+import som.primitives.ObjectPrims.ClassPrim;
+import som.primitives.ObjectPrimsFactory.ClassPrimFactory;
+import som.vm.VmSettings;
 import som.vmobjects.SClass;
 import tools.snapshot.SnapshotBuffer;
 import tools.snapshot.deserialization.DeserializationBuffer;
@@ -17,7 +21,8 @@ import tools.snapshot.nodes.ObjectSerializationNodes.SObjectSerializationNode;
 
 @GenerateNodeFactory
 public abstract class CachedSerializationNode extends AbstractSerializationNode {
-  public static final int MAX_DEPTH = 8;
+  public static final int MAX_DEPTH = VmSettings.SNAPSHOT_INLINING_DEPTH;
+  @Child ClassPrim        classprim;
 
   protected final int depth;
 
@@ -61,7 +66,12 @@ public abstract class CachedSerializationNode extends AbstractSerializationNode 
 
   @Specialization
   public void fallback(final Object o, final SnapshotBuffer sb) {
-    Types.getClassOf(o).serialize(o, sb);
+    if (classprim == null) {
+      CompilerDirectives.transferToInterpreter();
+      classprim = ClassPrimFactory.create(null);
+    }
+
+    classprim.executeEvaluated(o).serialize(o, sb);
   }
 
   @Override

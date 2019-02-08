@@ -412,7 +412,7 @@ public class Actor implements Activity {
       return currentlyExecutingActor;
     }
 
-    public void setCurrentActorSnapshot(final Actor current) {
+    public void setCurrentActorForSnapshot(final Actor current) {
       this.currentlyExecutingActor = current;
     }
   }

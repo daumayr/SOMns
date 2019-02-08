@@ -328,7 +328,6 @@ public final class VM {
 
     assert objectSystem == null : "VM is reinitialized accidently? objectSystem is already set.";
     objectSystem = new ObjectSystem(new SourcecodeCompiler(lang), structuralProbe, this);
-
     objectSystem.loadKernelAndPlatform(options.platformFile, options.kernelFile);
 
     assert vmMirror == null : "VM seems to be initialized already";
