@@ -9,6 +9,7 @@ import som.vm.VmSettings;
 import som.vm.constants.Classes;
 import som.vmobjects.SClass;
 import tools.concurrency.TraceBuffer;
+import tools.concurrency.TracingActivityThread;
 import tools.concurrency.TracingActors.TracingActor;
 import tools.replay.nodes.TraceContextNode;
 import tools.snapshot.deserialization.DeserializationBuffer;
@@ -21,18 +22,26 @@ public class SnapshotBuffer extends TraceBuffer {
   public static final int MAX_FIELD_CNT = Byte.MAX_VALUE;
   public static final int THREAD_SHIFT  = Long.SIZE - Short.SIZE;
 
-  protected final byte                  snapshotVersion;
+  protected byte                        snapshotVersion;
+  public final long                     threadId;
   protected final ActorProcessingThread owner;
 
   public SnapshotBuffer(final ActorProcessingThread owner) {
     super(VmSettings.BUFFER_SIZE * 25);
     this.owner = owner;
+    this.threadId = owner.getThreadId();
     this.snapshotVersion = owner.getSnapshotId();
   }
 
-  public SnapshotRecord getRecord() {
-    return CompilerDirectives.castExact(owner.getCurrentActor(), TracingActor.class)
-                             .getSnapshotRecord();
+  public SnapshotBuffer(final byte snapshotVersion) {
+    super(VmSettings.BUFFER_SIZE * 25);
+    this.owner = null;
+    this.threadId = TracingActivityThread.threadIdGen.getAndIncrement();
+    this.snapshotVersion = snapshotVersion;
+  }
+
+  public TracingActor getRecord() {
+    return CompilerDirectives.castExact(owner.getCurrentActor(), TracingActor.class);
   }
 
   public ActorProcessingThread getOwner() {
@@ -40,7 +49,13 @@ public class SnapshotBuffer extends TraceBuffer {
   }
 
   public final long calculateReference(final long start) {
-    return (owner.getThreadId() << THREAD_SHIFT) | start;
+    assert start != -1;
+    return (threadId << THREAD_SHIFT) | start;
+  }
+
+  public final long calculateReferenceB(final long start) {
+    assert start != -1;
+    return (threadId << THREAD_SHIFT) | (start - Integer.BYTES);
   }
 
   public int reserveSpace(final int bytes) {
@@ -50,10 +65,10 @@ public class SnapshotBuffer extends TraceBuffer {
   }
 
   public int addObject(final Object o, final SClass clazz, final int payload) {
-    assert !getRecord().containsObjectUnsync(o) : "Object serialized multiple times";
+    assert !clazz.isSerializedUnsync(o, snapshotVersion) : "Object serialized multiple times";
 
     int oldPos = this.position;
-    getRecord().addObjectEntry(o, calculateReference(oldPos));
+    clazz.registerLocation(o, calculateReference(oldPos), snapshotVersion);
 
     if (clazz.getSOMClass() == Classes.classClass) {
       TracingActor owner = clazz.getOwnerOfOuter();
@@ -62,7 +77,7 @@ public class SnapshotBuffer extends TraceBuffer {
       }
 
       assert owner != null;
-      owner.getSnapshotRecord().farReference(clazz, null, 0);
+      owner.farReference(clazz, null, 0);
     }
     this.putIntAt(this.position, clazz.getIdentity());
     this.position += CLASS_ID_SIZE + payload;
@@ -73,10 +88,9 @@ public class SnapshotBuffer extends TraceBuffer {
     // we dont put messages into our lookup table as there should be only one reference to it
     // (either from a promise or a mailbox)
     int oldPos = this.position;
-    TracingActor ta = (TracingActor) owner.getCurrentActor();
-    assert !getRecord().containsObjectUnsync(
-        msg) : "Message serialized twice, and on the same actor";
-    getRecord().addObjectEntry(msg, calculateReference(oldPos));
+    assert !Classes.messageClass.isSerializedUnsync(msg,
+        snapshotVersion) : "Message serialized twice, and on the same actor";
+    Classes.messageClass.registerLocation(msg, calculateReference(oldPos), snapshotVersion);
     // owner.addMessageLocation(ta.getActorId(), calculateReference(oldPos));
 
     this.putIntAt(this.position, Classes.messageClass.getIdentity());
@@ -105,5 +119,14 @@ public class SnapshotBuffer extends TraceBuffer {
   public boolean needsToBeSnapshot(final long messageId) {
     return VmSettings.TEST_SNAPSHOTS || VmSettings.TEST_SERIALIZE_ALL
         || snapshotVersion > messageId;
+  }
+
+  public boolean changeBufferIfNecessary() {
+    if (this.position >= (this.getRawBuffer().length / 2)) {
+      this.buffer = new byte[this.buffer.length];
+      this.position = 0;
+      return true;
+    }
+    return false;
   }
 }

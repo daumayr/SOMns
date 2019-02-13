@@ -3,16 +3,18 @@ package tools.snapshot.nodes;
 import java.util.ArrayList;
 
 import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
+import com.oracle.truffle.api.dsl.Cached;
 import com.oracle.truffle.api.dsl.GenerateNodeFactory;
 import com.oracle.truffle.api.dsl.Specialization;
 
-import som.interpreter.Types;
 import som.interpreter.actors.Actor;
 import som.interpreter.actors.EventualMessage.PromiseMessage;
 import som.interpreter.actors.SPromise;
 import som.interpreter.actors.SPromise.Resolution;
 import som.interpreter.actors.SPromise.SResolver;
 import som.interpreter.actors.SPromise.STracingPromise;
+import som.primitives.ObjectPrims.ClassPrim;
+import som.primitives.ObjectPrimsFactory.ClassPrimFactory;
 import tools.concurrency.TracingActors.TracingActor;
 import tools.snapshot.SnapshotBackend;
 import tools.snapshot.SnapshotBuffer;
@@ -28,27 +30,27 @@ public abstract class PromiseSerializationNodes {
 
   static void handleReferencedPromise(final SPromise prom,
       final SnapshotBuffer sb, final int location) {
-    if (prom.getOwner() == sb.getOwner().getCurrentActor()) {
-      if (!sb.getRecord().containsObjectUnsync(prom)) {
-        SPromise.getPromiseClass().serialize(prom, sb);
-      }
-      sb.putLongAt(location, sb.getRecord().getObjectPointer(prom));
+    if (sb.getOwner() != null && prom.getOwner() == sb.getOwner().getCurrentActor()) {
+      long promLocation = SPromise.getPromiseClass().serialize(prom, sb);
+      sb.putLongAt(location, promLocation);
     } else {
       // The Promise belong to another Actor
       TracingActor ta = (TracingActor) prom.getOwner();
-      if (!ta.getSnapshotRecord().containsObject(ta)) {
-        ta.getSnapshotRecord().farReference(prom, sb, location);
+      long promLocation = SPromise.getPromiseClass().getObjectLocation(prom);
+      if (promLocation == -1) {
+        ta.farReference(prom, sb, location);
       } else {
-        sb.putLongAt(location, ta.getSnapshotRecord().getObjectPointer(prom));
+        sb.putLongAt(location, promLocation);
       }
     }
   }
 
   @GenerateNodeFactory
   public abstract static class PromiseSerializationNode extends AbstractSerializationNode {
+    @Child ClassPrim classPrim = ClassPrimFactory.create(null);
 
     @Specialization(guards = "!prom.isCompleted()")
-    public void doUnresolved(final SPromise prom, final SnapshotBuffer sb) {
+    public long doUnresolved(final SPromise prom, final SnapshotBuffer sb) {
       int ncp;
       int nwr;
       int noe;
@@ -71,9 +73,10 @@ public abstract class PromiseSerializationNodes {
         onErrorExt = prom.getOnErrorExtUnsync();
         noe = getObjectCnt(onError, onErrorExt);
       }
-      int base =
+      int start =
           sb.addObject(prom, SPromise.getPromiseClass(),
               1 + Integer.BYTES + 6 + Long.BYTES * (noe + nwr + ncp));
+      int base = start;
 
       // resolutionstate
       if (prom.getResolutionStateUnsync() == Resolution.CHAINED) {
@@ -87,10 +90,11 @@ public abstract class PromiseSerializationNodes {
       base = serializeMessages(base, nwr, whenRes, whenResExt, sb);
       base = serializeMessages(base, noe, onError, onErrorExt, sb);
       serializeChainedPromises(base, ncp, chainedProm, chainedPromExt, sb);
+      return sb.calculateReferenceB(start);
     }
 
     @Specialization(guards = "prom.isCompleted()")
-    public void doResolved(final SPromise prom, final SnapshotBuffer sb) {
+    public long doResolved(final SPromise prom, final SnapshotBuffer sb) {
       int ncp;
       int nwr;
       int noe;
@@ -113,8 +117,9 @@ public abstract class PromiseSerializationNodes {
         onErrorExt = prom.getOnErrorExtUnsync();
         noe = getObjectCnt(onError, onErrorExt);
       }
-      int base = sb.addObject(prom, SPromise.getPromiseClass(),
+      int start = sb.addObject(prom, SPromise.getPromiseClass(),
           1 + 6 + Integer.BYTES + Integer.BYTES + Long.BYTES * (noe + nwr + ncp + 1));
+      int base = start;
 
       // resolutionstate
       switch (prom.getResolutionStateUnsync()) {
@@ -129,17 +134,18 @@ public abstract class PromiseSerializationNodes {
       }
 
       Object value = prom.getValueForSnapshot();
-      if (!sb.getRecord().containsObjectUnsync(value)) {
-        Types.getClassOf(value).serialize(value, sb);
-      }
+
       sb.putIntAt(base + 1, ((TracingActor) prom.getOwner()).getActorId());
-      sb.putLongAt(base + 1 + Integer.BYTES, sb.getRecord().getObjectPointer(value));
+      sb.putLongAt(base + 1 + Integer.BYTES,
+          classPrim.executeEvaluated(value).serialize(value, sb));
       sb.putIntAt(base + 1 + +Integer.BYTES + Long.BYTES,
           ((STracingPromise) prom).getResolvingActor());
       base += (1 + Integer.BYTES + Integer.BYTES + Long.BYTES);
       base = serializeMessages(base, nwr, whenRes, whenResExt, sb);
       base = serializeMessages(base, noe, onError, onErrorExt, sb);
       serializeChainedPromises(base, ncp, chainedProm, chainedPromExt, sb);
+
+      return sb.calculateReferenceB(start);
     }
 
     private int getObjectCnt(final Object obj, final ArrayList<? extends Object> extension) {
@@ -191,7 +197,7 @@ public abstract class PromiseSerializationNodes {
         sb.putLongAt(location, pm.forceSerialize(sb));
       } else {
         TracingActor ta = (TracingActor) pm.getTarget();
-        ta.getSnapshotRecord().farReferenceMessage(pm, sb, location);
+        ta.farReferenceMessage(pm, sb, location);
       }
     }
 
@@ -341,10 +347,13 @@ public abstract class PromiseSerializationNodes {
   public abstract static class ResolverSerializationNode extends AbstractSerializationNode {
 
     @Specialization
-    public void doResolver(final SResolver resolver, final SnapshotBuffer sb) {
-      int base = sb.addObject(resolver, SResolver.getResolverClass(), Long.BYTES);
+    public long doResolver(final SResolver resolver, final SnapshotBuffer sb,
+        @Cached("getBuffer()") final SnapshotBuffer vb) {
+      int base = vb.addObject(resolver, SResolver.getResolverClass(),
+          Long.BYTES);
       SPromise prom = resolver.getPromise();
-      handleReferencedPromise(prom, sb, base);
+      handleReferencedPromise(prom, vb, base);
+      return vb.calculateReferenceB(base);
     }
 
     @Override

@@ -384,10 +384,80 @@ public final class SClass extends SObjectWithClass {
     return context;
   }
 
-  public void serialize(final Object o, final SnapshotBuffer sb) {
+  public long serialize(final Object o, final SnapshotBuffer sb) {
     assert instanceClassGroup != null;
-    if (!sb.getRecord().containsObjectUnsync(o)) {
-      instanceClassGroup.serialize(o, sb);
+    long loc = this.getObjectLocationUnsync(o);
+    if (loc == -1) {
+      return instanceClassGroup.serialize(o, sb);
+    } else {
+      return loc;
+    }
+  }
+
+  @TruffleBoundary
+  private void putToBuffer(final Object obj, final long location) {
+    synchronized (SnapshotBackend.getValuepool()) {
+      SnapshotBackend.getValuepool().put(obj, location);
+    }
+  }
+
+  @TruffleBoundary
+  private boolean contains(final Object obj) {
+    return SnapshotBackend.getValuepool().containsKey(obj);
+  }
+
+  @TruffleBoundary
+  private long getFromBuffer(final Object obj) {
+    synchronized (SnapshotBackend.getValuepool()) {
+      return SnapshotBackend.getValuepool().getOrDefault(obj, (long) -1);
+    }
+  }
+
+  public void registerLocation(final Object obj, final long location,
+      final byte snapshotVersion) {
+    if (declaredAsValue || (obj instanceof SClass && ((SClass) obj).isValue())) {
+      putToBuffer(obj, location);
+    } else {
+      SAbstractObject aobj = (SAbstractObject) obj;
+      aobj.updateSnapshotLocation(location, snapshotVersion);
+    }
+  }
+
+  public long getObjectLocation(final Object obj) {
+    if (declaredAsValue || (obj instanceof SClass && ((SClass) obj).isValue())) {
+      return getFromBuffer(obj);
+    } else {
+      SAbstractObject aobj = (SAbstractObject) obj;
+      return aobj.getSnapshotLocation();
+    }
+  }
+
+  public long getObjectLocationUnsync(final Object obj) {
+    if (declaredAsValue || (obj instanceof SClass && ((SClass) obj).isValue())) {
+      return getFromBuffer(obj);
+    } else {
+      SAbstractObject aobj = (SAbstractObject) obj;
+      return aobj.getSnapshotLocation();
+    }
+  }
+
+  public boolean isSerializedUnsync(final Object obj, final byte snapshot) {
+    if (declaredAsValue || (obj instanceof SClass && ((SClass) obj).isValue())) {
+      return contains(obj);
+    } else {
+      SAbstractObject aobj = (SAbstractObject) obj;
+      return aobj.getSnapshotLocation() != -1 && aobj.getSnapshotVersion() == snapshot;
+    }
+  }
+
+  public boolean isSerialized(final Object obj, final byte snapshot) {
+    if (declaredAsValue || (obj instanceof SClass && ((SClass) obj).isValue())) {
+      synchronized (SnapshotBackend.getValuepool()) {
+        return contains(obj);
+      }
+    } else {
+      SAbstractObject aobj = (SAbstractObject) obj;
+      return aobj.getSnapshotLocation() != -1 && aobj.getSnapshotVersion() == snapshot;
     }
   }
 

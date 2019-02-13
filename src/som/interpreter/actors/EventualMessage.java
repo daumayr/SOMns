@@ -12,7 +12,10 @@ import som.interpreter.actors.Actor.ActorProcessingThread;
 import som.interpreter.actors.ReceivedMessage.ReceivedCallback;
 import som.interpreter.actors.SPromise.SResolver;
 import som.vm.VmSettings;
+import som.vm.constants.Classes;
+import som.vmobjects.SAbstractObject;
 import som.vmobjects.SBlock;
+import som.vmobjects.SClass;
 import som.vmobjects.SSymbol;
 import tools.concurrency.TracingActivityThread;
 import tools.parser.KomposTraceParser;
@@ -21,7 +24,7 @@ import tools.snapshot.SnapshotBackend;
 import tools.snapshot.SnapshotBuffer;
 
 
-public abstract class EventualMessage {
+public abstract class EventualMessage extends SAbstractObject {
   protected final Object[]       args;
   protected final SResolver      resolver;
   protected final RootCallTarget onReceive;
@@ -74,6 +77,16 @@ public abstract class EventualMessage {
 
   public abstract Actor getSender();
 
+  @Override
+  public SClass getSOMClass() {
+    return Classes.messageClass;
+  }
+
+  @Override
+  public boolean isValue() {
+    return false;
+  }
+
   public SResolver getResolver() {
     return resolver;
   }
@@ -120,8 +133,9 @@ public abstract class EventualMessage {
   // indirection here, which leads us to a serializer that's not compilation
   // final, I think
   public long forceSerialize(final SnapshotBuffer sb) {
-    if (sb.getRecord().containsObject(this)) {
-      return sb.getRecord().getObjectPointer(this);
+    long location = Classes.messageClass.getObjectLocationUnsync(this);
+    if (location != -1) {
+      return location;
     }
     ReceivedRootNode rm = (ReceivedRootNode) this.onReceive.getRootNode();
     return rm.getSerializer().execute(this, sb);

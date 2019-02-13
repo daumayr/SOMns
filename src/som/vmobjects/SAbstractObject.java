@@ -7,6 +7,7 @@ import com.oracle.truffle.api.library.ExportMessage;
 
 import som.interop.SomInteropObject;
 import som.vm.constants.Nil;
+import tools.snapshot.SnapshotBuffer;
 
 
 @ExportLibrary(InteropLibrary.class)
@@ -15,6 +16,9 @@ public abstract class SAbstractObject implements SomInteropObject {
   public abstract SClass getSOMClass();
 
   public abstract boolean isValue();
+
+  private long snapshotLocation = -1;
+  private byte snapshotVersion;
 
   @Override
   public String toString() {
@@ -29,5 +33,26 @@ public abstract class SAbstractObject implements SomInteropObject {
   @ExportMessage
   public final boolean isNull() {
     return this == Nil.nilObject;
+  }
+
+  public long getSnapshotLocation() {
+    return snapshotLocation;
+  }
+
+  public long getSnapshotLocationAndUpdate(final SnapshotBuffer sb) {
+    if (snapshotLocation == -1 || snapshotVersion != sb.getSnapshotVersion()) {
+      snapshotVersion = sb.getSnapshotVersion();
+      snapshotLocation = getSOMClass().serialize(this, sb);
+    }
+    return snapshotLocation;
+  }
+
+  public byte getSnapshotVersion() {
+    return snapshotVersion;
+  }
+
+  public void updateSnapshotLocation(final long snapshotLocation, final byte version) {
+    this.snapshotLocation = snapshotLocation;
+    this.snapshotVersion = version;
   }
 }

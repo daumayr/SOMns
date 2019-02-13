@@ -13,6 +13,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedList;
+import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
@@ -56,12 +57,15 @@ public class SnapshotBackend {
 
   private static final StructuralProbe<SSymbol, MixinDefinition, SInvokable, SlotDefinition, Variable> probe;
 
-  private static final EconomicMap<Short, SSymbol>            symbolDictionary;
-  private static final EconomicMap<Integer, Object>           classDictionary;
-  private static final ConcurrentLinkedQueue<SnapshotBuffer>      buffers;
-  private static final ConcurrentLinkedQueue<ArrayList<Long>>     messages;
-  private static final EconomicMap<Integer, Long>                 classLocations;
-  private static final ConcurrentHashMap<SnapshotRecord, Integer> deferredSerializations;
+  private static final EconomicMap<Short, SSymbol>              symbolDictionary;
+  private static final EconomicMap<Integer, Object>             classDictionary;
+  private static final ConcurrentLinkedQueue<SnapshotBuffer>    buffers;
+  private static final ConcurrentLinkedQueue<ArrayList<Long>>   messages;
+  private static final EconomicMap<Integer, Long>               classLocations;
+  private static final EconomicMap<Integer, Long>               valueClassLocations;
+  private static final ConcurrentHashMap<TracingActor, Integer> deferredSerializations;
+  private static final WeakHashMap<Object, Long>                valuePool;
+  private static SnapshotBuffer                                 valueBuffer;
 
   private static final ArrayList<Long> lostResolutions;
 
@@ -80,6 +84,8 @@ public class SnapshotBackend {
       deferredSerializations = new ConcurrentHashMap<>();
       lostResolutions = new ArrayList<>();
       classLocations = null;
+      valueClassLocations = null;
+      valuePool = null;
       // identity int, includes mixin info
       // long outer
       // essentially this is about capturing the outer
@@ -89,19 +95,24 @@ public class SnapshotBackend {
       symbolDictionary = null;
       probe = null;
       classLocations = EconomicMap.create();
+      valueClassLocations = EconomicMap.create();
       buffers = new ConcurrentLinkedQueue<>();
       messages = new ConcurrentLinkedQueue<>();
       deferredSerializations = new ConcurrentHashMap<>();
       lostResolutions = new ArrayList<>();
+      valuePool = new WeakHashMap<>();
+      valueBuffer = new SnapshotBuffer((byte) 0);
     } else {
       classDictionary = null;
       symbolDictionary = null;
       probe = null;
       classLocations = null;
+      valueClassLocations = null;
       buffers = null;
       messages = null;
       deferredSerializations = null;
       lostResolutions = null;
+      valuePool = null;
     }
   }
 
@@ -120,7 +131,10 @@ public class SnapshotBackend {
 
   public static synchronized void registerClass(final SClass clazz) {
     assert VmSettings.TRACK_SNAPSHOT_ENTITIES;
-    classDictionary.put(clazz.getIdentity(), clazz);
+    Object current = classDictionary.get(clazz.getIdentity());
+    if (!(current instanceof LinkedList)) {
+      classDictionary.put(clazz.getIdentity(), clazz);
+    }
   }
 
   public static void registerLoadedModules(final EconomicMap<URI, MixinDefinition> loaded) {
@@ -143,25 +157,25 @@ public class SnapshotBackend {
 
   @SuppressWarnings("unchecked")
   public static SClass lookupClass(final int id, final long ref) {
-    if (classDictionary.containsKey(id)) {
-      Object entry = classDictionary.get(id);
-      if (entry instanceof SClass) {
-        return (SClass) entry;
-      }
-
-      LinkedList<Long> todo = null;
-      if (entry == null) {
-        todo = new LinkedList<Long>();
-        classDictionary.put(id, todo);
-      } else if (entry instanceof LinkedList<?>) {
-        todo = (LinkedList<Long>) entry;
-      }
-      todo.add(ref);
-      return null;
+    if (!classDictionary.containsKey(id)) {
+      // doesn't exist yet
+      return createSClass(id);
     }
 
-    // doesn't exist yet
-    return createSClass(id);
+    Object entry = classDictionary.get(id);
+
+    if (entry instanceof SClass) {
+      return (SClass) entry;
+    }
+
+    if (entry == null) {
+      entry = new LinkedList<Long>();
+      classDictionary.put(id, entry);
+    }
+
+    LinkedList<Long> todo = (LinkedList<Long>) entry;
+    todo.add(ref);
+    return null;
   }
 
   private static SClass createSClass(final int id) {
@@ -271,9 +285,16 @@ public class SnapshotBackend {
     deferredSerializations.clear();
     lostResolutions.clear();
     buffers.clear();
+    valueBuffer.snapshotVersion = (byte) (snapshotVersion + 1);
+    if (valueBuffer.changeBufferIfNecessary()) {
+      Output.println("SWAPPED");
+      valuePool.clear();
+    }
+
     synchronized (classLocations) {
       classLocations.clear();
     }
+
     snapshotVersion++;
 
     // notify the worker in the tracingbackend about this change.
@@ -285,6 +306,14 @@ public class SnapshotBackend {
     // intentionally unsynchronized, as a result the line between snapshots will be a bit
     // fuzzy.
     return snapshotVersion;
+  }
+
+  public static WeakHashMap<Object, Long> getValuepool() {
+    return valuePool;
+  }
+
+  public static SnapshotBuffer getValueBuffer() {
+    return valueBuffer;
   }
 
   public static Actor lookupActor(final int actorId) {
@@ -316,12 +345,12 @@ public class SnapshotBackend {
    * actor.
    */
   @TruffleBoundary
-  public static void deferSerialization(final SnapshotRecord sr) {
+  public static void deferSerialization(final TracingActor sr) {
     deferredSerializations.put(sr, 0);
   }
 
   @TruffleBoundary
-  public static void completedSerialization(final SnapshotRecord sr) {
+  public static void completedSerialization(final TracingActor sr) {
     deferredSerializations.remove(sr);
   }
 
@@ -348,6 +377,8 @@ public class SnapshotBackend {
       return;
     }
 
+    buffers.add(valueBuffer);
+
     String name = VmSettings.TRACE_FILE + '.' + snapshotVersion;
     File f = new File(name + ".snap");
     try (FileOutputStream fos = new FileOutputStream(f)) {
@@ -360,10 +391,10 @@ public class SnapshotBackend {
       SnapshotBuffer buffer = buffers.peek();
 
       while (!deferredSerializations.isEmpty()) {
-        for (SnapshotRecord sr : deferredSerializations.keySet()) {
-          assert sr.owner != null;
+        for (TracingActor sr : deferredSerializations.keySet()) {
+          assert sr != null;
           deferredSerializations.remove(sr);
-          buffer.owner.setCurrentActorForSnapshot(sr.owner);
+          buffer.owner.setCurrentActorForSnapshot(sr);
           sr.handleObjectsReferencedFromFarRefs(buffer, classPrim);
         }
       }
@@ -386,12 +417,19 @@ public class SnapshotBackend {
   }
 
   private static int writeClassEnclosures(final FileOutputStream fos) throws IOException {
-    int size = (classLocations.size() * 2 + 1) * Long.BYTES;
+    int numClasses = classLocations.size() + valueClassLocations.size();
+    int size = (numClasses * 2 + 1) * Long.BYTES;
     ByteBuffer bb = ByteBuffer.allocate(size).order(ByteOrder.LITTLE_ENDIAN);
 
-    bb.putLong(classLocations.size());
+    bb.putLong(numClasses);
 
     MapCursor<Integer, Long> cursor = classLocations.getEntries();
+    while (cursor.advance()) {
+      bb.putLong(cursor.getKey());
+      bb.putLong(cursor.getValue());
+    }
+
+    cursor = valueClassLocations.getEntries();
     while (cursor.advance()) {
       bb.putLong(cursor.getKey());
       bb.putLong(cursor.getValue());
@@ -414,16 +452,17 @@ public class SnapshotBackend {
     int registrySize = ((numBuffers * 2 + 2) * Long.BYTES);
     ByteBuffer bb = ByteBuffer.allocate(registrySize).order(ByteOrder.LITTLE_ENDIAN);
     // get and write location of the promise
-    TracingActor ta = (TracingActor) resultPromise.getOwner();
-    SPromise.getPromiseClass().serialize(resultPromise, buffers.peek());
-    long location = ta.getSnapshotRecord().getObjectPointer(resultPromise);
+    long location = SPromise.getPromiseClass().getObjectLocation(resultPromise);
+    if (location == -1) {
+      location = SPromise.getPromiseClass().serialize(resultPromise, buffers.peek());
+    }
     bb.putLong(location);
 
     bb.putLong(numBuffers);
 
     int bufferStart = msgSize + registrySize;
     for (SnapshotBuffer sb : buffers) {
-      long id = sb.owner.getThreadId();
+      long id = sb.threadId;
       bb.putLong(id);
       bb.putLong(bufferStart);
       bufferStart += sb.position();
@@ -510,7 +549,7 @@ public class SnapshotBackend {
   public static void registerLostResolution(final SResolver resolver,
       final SnapshotBuffer sb) {
 
-    SResolver.getResolverClass().serialize(resolver, sb);
+    long resolverLocation = SResolver.getResolverClass().serialize(resolver, sb);
 
     if (!resolver.getPromise().isCompleted()) {
       Output.println("skipped!!");
@@ -519,15 +558,15 @@ public class SnapshotBackend {
 
     Object result = resolver.getPromise().getValueForSnapshot();
 
-    Types.getClassOf(result).serialize(result, sb);
+    long resultLocation = Types.getClassOf(result).serialize(result, sb);
 
     int base = sb.reserveSpace(Long.BYTES * 2 + Integer.BYTES + 1);
     synchronized (lostResolutions) {
       lostResolutions.add(sb.calculateReference(base));
     }
 
-    sb.putLongAt(base, sb.getRecord().getObjectPointer(resolver));
-    sb.putLongAt(base + Long.BYTES, sb.getRecord().getObjectPointer(result));
+    sb.putLongAt(base, resolverLocation);
+    sb.putLongAt(base + Long.BYTES, resultLocation);
     sb.putIntAt(base + Long.BYTES * 2,
         ((TracingActor) sb.getOwner().getCurrentActor()).getActorId());
     sb.putByteAt(base + Long.BYTES * 2 + Integer.BYTES,
@@ -542,6 +581,14 @@ public class SnapshotBackend {
     synchronized (classLocations) {
       classLocations.put(identity, classLocation);
     }
+  }
 
+  public static void registerValueClassLocation(final int identity, final long classLocation) {
+    if (VmSettings.TEST_SNAPSHOTS) {
+      return;
+    }
+    synchronized (valueClassLocations) {
+      valueClassLocations.put(identity, classLocation);
+    }
   }
 }

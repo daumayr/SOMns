@@ -21,13 +21,14 @@ import som.interpreter.objectstorage.ClassFactory;
 import som.interpreter.objectstorage.ObjectLayout;
 import som.interpreter.objectstorage.ObjectTransitionSafepoint;
 import som.interpreter.objectstorage.StorageLocation;
+import som.primitives.ObjectPrims.ClassPrim;
+import som.primitives.ObjectPrimsFactory.ClassPrimFactory;
 import som.vmobjects.SClass;
 import som.vmobjects.SObject;
 import som.vmobjects.SObject.SImmutableObject;
 import som.vmobjects.SObject.SMutableObject;
 import som.vmobjects.SObjectWithClass.SObjectWithoutFields;
 import tools.snapshot.SnapshotBuffer;
-import tools.snapshot.SnapshotRecord;
 import tools.snapshot.deserialization.DeserializationBuffer;
 import tools.snapshot.deserialization.FixupInformation;
 import tools.snapshot.nodes.ObjectSerializationNodesFactory.SObjectSerializationNodeFactory;
@@ -149,6 +150,7 @@ public abstract class ObjectSerializationNodes {
     @Children private CachedSlotRead[]          fieldReads;
     @Children private CachedSlotWrite[]         fieldWrites;
     @Children private CachedSerializationNode[] cachedSerializers;
+    @Child ClassPrim                            classPrim = ClassPrimFactory.create(null);
     protected final ObjectLayout                layout;
 
     protected SObjectSerializationNode(final ClassFactory instanceFactory,
@@ -169,7 +171,7 @@ public abstract class ObjectSerializationNodes {
     }
 
     @Specialization
-    public void serialize(final SObject so, final SnapshotBuffer sb) {
+    public long serialize(final SObject so, final SnapshotBuffer sb) {
       if (!so.isLayoutCurrent()) {
         CompilerDirectives.transferToInterpreter();
         ObjectTransitionSafepoint.INSTANCE.transitionObject(so);
@@ -180,32 +182,33 @@ public abstract class ObjectSerializationNodes {
         SObjectSerializationNode replacement =
             SObjectSerializationNodeFactory.create(classFact,
                 createReadNodes(so.getFactory()), depth);
-        replace(replacement).serialize(so, sb);
+        return replace(replacement).execute(so, sb);
       } else {
-        doCached(so, sb);
+        return doCached(so, sb);
       }
     }
 
     @ExplodeLoop
-    public void doCached(final SObject o, final SnapshotBuffer sb) {
-      int base = sb.addObject(o, o.getSOMClass(), FIELD_SIZE * fieldCnt);
+    public long doCached(final SObject o, final SnapshotBuffer sb) {
+      int start = sb.addObject(o, o.getSOMClass(), FIELD_SIZE * fieldCnt);
+      int base = start;
 
       assert fieldCnt < MAX_FIELD_CNT;
 
-      SnapshotRecord record = sb.getRecord();
       for (int i = 0; i < fieldCnt; i++) {
         Object value = fieldReads[i].read(o);
         // TODO type profiles could be an optimization (separate profile for each slot)
         // TODO optimize, maybe it is better to add an integer to the objects (indicating their
         // offset) rather than using a map.
 
-        if (!record.containsObjectUnsync(value)) {
+        long loc = classPrim.executeEvaluated(value).getObjectLocationUnsync(value);
+        if (loc == -1) {
           // Referenced Object not yet in snapshot
-          cachedSerializers[i].execute(value, sb);
+          loc = cachedSerializers[i].execute(value, sb);
         }
-
-        sb.putLongAt(base + (8 * i), record.getObjectPointer(value));
+        sb.putLongAt(base + (8 * i), loc);
       }
+      return sb.calculateReferenceB(start);
     }
 
     @Override
@@ -263,8 +266,8 @@ public abstract class ObjectSerializationNodes {
 
     @ExplodeLoop
     @Specialization
-    public void serialize(final SObjectWithoutFields o, final SnapshotBuffer sb) {
-      sb.addObject(o, o.getSOMClass(), 0);
+    public long serialize(final SObjectWithoutFields o, final SnapshotBuffer sb) {
+      return sb.calculateReferenceB(sb.addObject(o, o.getSOMClass(), 0));
     }
 
     @Override

@@ -15,14 +15,15 @@ import com.oracle.truffle.api.frame.MaterializedFrame;
 
 import som.compiler.Variable.Internal;
 import som.interpreter.FrameOnStackMarker;
-import som.interpreter.Types;
+import som.primitives.ObjectPrims.ClassPrim;
+import som.primitives.ObjectPrimsFactory.ClassPrimFactory;
 import som.vm.constants.Classes;
+import som.vm.constants.Nil;
 import som.vmobjects.SAbstractObject;
 import som.vmobjects.SBlock;
 import som.vmobjects.SInvokable;
 import tools.snapshot.SnapshotBackend;
 import tools.snapshot.SnapshotBuffer;
-import tools.snapshot.SnapshotRecord;
 import tools.snapshot.deserialization.DeserializationBuffer;
 import tools.snapshot.deserialization.FixupInformation;
 
@@ -34,26 +35,28 @@ public abstract class BlockSerializationNode extends AbstractSerializationNode {
 
   // TODO specialize on different blocks
   @Specialization
-  public void serialize(final SBlock block, final SnapshotBuffer sb) {
+  public long serialize(final SBlock block, final SnapshotBuffer sb) {
 
     MaterializedFrame mf = block.getContextOrNull();
 
     if (mf == null) {
-      int base = sb.addObject(block, Classes.blockClass, SINVOKABLE_SIZE + 1);
+      int start = sb.addObject(block, Classes.blockClass, SINVOKABLE_SIZE + 1);
+      int base = start;
       SInvokable meth = block.getMethod();
       sb.putShortAt(base, meth.getIdentifier().getSymbolId());
       sb.putByteAt(base + 2, (byte) 0);
+      return sb.calculateReferenceB(start);
     } else {
-      int base = sb.addObject(block, Classes.blockClass, SINVOKABLE_SIZE + 1 + Long.BYTES);
-
+      int start = sb.addObject(block, Classes.blockClass, SINVOKABLE_SIZE + 1 + Long.BYTES);
+      int base = start;
       SInvokable meth = block.getMethod();
       sb.putShortAt(base, meth.getIdentifier().getSymbolId());
       sb.putByteAt(base + 2, (byte) 1);
 
-      if (!sb.getRecord().containsObjectUnsync(mf)) {
-        meth.getFrameSerializer().execute(block, sb);
-      }
-      sb.putLongAt(base + 3, sb.getRecord().getObjectPointer(mf));
+      long framelocation = meth.getFrameSerializer().execute(block, sb);
+
+      sb.putLongAt(base + 3, framelocation);
+      return sb.calculateReferenceB(start);
     }
   }
 
@@ -134,6 +137,7 @@ public abstract class BlockSerializationNode extends AbstractSerializationNode {
   @GenerateNodeFactory
   public abstract static class FrameSerializationNode extends AbstractSerializationNode {
     private final FrameDescriptor frameDescriptor;
+    @Child ClassPrim              classPrim = ClassPrimFactory.create(null);
 
     protected FrameSerializationNode(final FrameDescriptor frameDescriptor) {
       this.frameDescriptor = frameDescriptor;
@@ -147,7 +151,7 @@ public abstract class BlockSerializationNode extends AbstractSerializationNode {
 
     // Truffle doesn't seem to like me passing a frame, so we pass the entire block
     @Specialization
-    public void serialize(final SBlock block, final SnapshotBuffer sb) {
+    public long serialize(final SBlock block, final SnapshotBuffer sb) {
       MaterializedFrame frame = block.getContext();
       Object[] args = frame.getArguments();
 
@@ -157,17 +161,17 @@ public abstract class BlockSerializationNode extends AbstractSerializationNode {
       assert slotCnt < 0xFF : "Too many slots";
       assert args.length < 0xFF : "Too many arguments";
 
-      int base =
-          sb.addObject(frame, Classes.frameClass, 2 + ((args.length + slotCnt) * Long.BYTES));
+      int start =
+          sb.reserveSpace(2 + ((args.length + slotCnt) * Long.BYTES));
+      int base = start;
 
       sb.putByteAt(base, (byte) args.length);
       base++;
 
-      SnapshotRecord record = sb.getRecord();
       for (int i = 0; i < args.length; i++) {
         // TODO optimization: cache argument serialization
-        Types.getClassOf(args[i]).serialize(args[i], sb);
-        sb.putLongAt(base + (i * Long.BYTES), record.getObjectPointer(args[i]));
+        sb.putLongAt(base + (i * Long.BYTES),
+            classPrim.executeEvaluated(args[i]).serialize(args[i], sb));
       }
 
       base += (args.length * Long.BYTES);
@@ -183,42 +187,48 @@ public abstract class BlockSerializationNode extends AbstractSerializationNode {
         // TODO optimization: MaterializedFrameSerialization Nodes that are associated with the
         // Invokables Frame Descriptor. Possibly use Local Var Read Nodes.
         Object value = frame.getValue(slot);
-        switch (frameDescriptor.getFrameSlotKind(slot)) {
-          case Boolean:
-            Classes.booleanClass.serialize(value, sb);
-            break;
-          case Double:
-            Classes.doubleClass.serialize(value, sb);
-            break;
-          case Long:
-            Classes.integerClass.serialize(value, sb);
-            break;
-          case Object:
-            // We are going to represent this as a boolean, the slot will handled in replay
-            if (value instanceof FrameOnStackMarker) {
-              value = ((FrameOnStackMarker) value).isOnStack();
-              Classes.booleanClass.serialize(value, sb);
-            } else {
-              assert value instanceof SAbstractObject;
-              Types.getClassOf(value).serialize(value, sb);
-            }
-            break;
-          case Illegal:
-            // Uninitialized variables
-            Types.getClassOf(frameDescriptor.getDefaultValue())
-                 .serialize(frameDescriptor.getDefaultValue(), sb);
-            break;
-          default:
-            throw new IllegalArgumentException("Unexpected SlotKind");
+        long valueLocation;
+        if (value == Nil.nilObject) {
+          valueLocation = Nil.nilObject.getSOMClass().serialize(Nil.nilObject, sb);
+        } else {
+          switch (frameDescriptor.getFrameSlotKind(slot)) {
+            case Boolean:
+              valueLocation = Classes.booleanClass.serialize(value, sb);
+              break;
+            case Double:
+              valueLocation = Classes.doubleClass.serialize(value, sb);
+              break;
+            case Long:
+              valueLocation = Classes.integerClass.serialize(value, sb);
+              break;
+            case Object:
+              // We are going to represent this as a boolean, the slot will handled in replay
+              if (value instanceof FrameOnStackMarker) {
+                value = ((FrameOnStackMarker) value).isOnStack();
+                valueLocation = Classes.booleanClass.serialize(value, sb);
+              } else {
+                assert value instanceof SAbstractObject;
+                valueLocation = classPrim.executeEvaluated(value).serialize(value, sb);
+              }
+              break;
+            case Illegal:
+              // Uninitialized variables
+              valueLocation = classPrim.executeEvaluated(frameDescriptor.getDefaultValue())
+                                       .serialize(frameDescriptor.getDefaultValue(), sb);
+              break;
+            default:
+              throw new IllegalArgumentException("Unexpected SlotKind");
+          }
         }
 
-        sb.putLongAt(base + (j * Long.BYTES), sb.getRecord().getObjectPointer(value));
+        sb.putLongAt(base + (j * Long.BYTES), valueLocation);
         j++;
         // dont redo frame!
         // just serialize locals and arguments ordered by their slotnumber
         // we can get the frame from the invokables root node
       }
       base += j * Long.BYTES;
+      return sb.calculateReferenceB(start);
     }
 
     @Override
