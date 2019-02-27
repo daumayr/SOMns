@@ -285,9 +285,9 @@ public class SnapshotBackend {
     deferredSerializations.clear();
     lostResolutions.clear();
     buffers.clear();
+    messages.clear();
     valueBuffer.snapshotVersion = (byte) (snapshotVersion + 1);
     if (valueBuffer.changeBufferIfNecessary()) {
-      Output.println("SWAPPED");
       valuePool.clear();
     }
 

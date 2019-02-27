@@ -36,6 +36,10 @@ public abstract class BlockSerializationNode extends AbstractSerializationNode {
   // TODO specialize on different blocks
   @Specialization
   public long serialize(final SBlock block, final SnapshotBuffer sb) {
+    long location = getObjectLocation(block, sb.getSnapshotVersion());
+    if (location != -1) {
+      return location;
+    }
 
     MaterializedFrame mf = block.getContextOrNull();
 
@@ -207,7 +211,8 @@ public abstract class BlockSerializationNode extends AbstractSerializationNode {
                 value = ((FrameOnStackMarker) value).isOnStack();
                 valueLocation = Classes.booleanClass.serialize(value, sb);
               } else {
-                assert value instanceof SAbstractObject;
+              assert value instanceof SAbstractObject || value instanceof String : "was"
+                  + value.toString();
                 valueLocation = classPrim.executeEvaluated(value).serialize(value, sb);
               }
               break;

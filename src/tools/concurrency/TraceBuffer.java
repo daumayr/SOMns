@@ -142,37 +142,37 @@ public abstract class TraceBuffer {
 
   public void putByteAt(final int idx, final byte x) {
     assert buffer.length >= bufferSize;
-    assert 0 <= idx && idx < bufferSize;
+    assert 0 <= idx && idx < bufferSize : "at: " + idx + " of " + bufferSize;
     UNSAFE.putByte(buffer, BYTE_ARR_BASE_OFFSET + idx, x);
   }
 
   public void putShortAt(final int idx, final short x) {
     assert buffer.length >= bufferSize;
-    assert 0 <= idx && (idx + 2) < bufferSize;
+    assert 0 <= idx && (idx + 2) < bufferSize : "at: " + idx + " of " + bufferSize;
     UNSAFE.putShort(buffer, BYTE_ARR_BASE_OFFSET + idx, x);
   }
 
   public void putIntAt(final int idx, final int x) {
     assert buffer.length >= bufferSize;
-    assert 0 <= idx && (idx + 4) < bufferSize;
+    assert 0 <= idx && (idx + 4) < bufferSize : "at: " + idx + " of " + bufferSize;
     UNSAFE.putInt(buffer, BYTE_ARR_BASE_OFFSET + idx, x);
   }
 
   public void putLongAt(final int idx, final long x) {
     assert buffer.length >= bufferSize;
-    assert 0 <= idx && (idx + 8) < bufferSize;
+    assert 0 <= idx && (idx + 8) < bufferSize : "at: " + idx + " of " + bufferSize;
     UNSAFE.putLong(buffer, BYTE_ARR_BASE_OFFSET + idx, x);
   }
 
   public void putDoubleAt(final int idx, final double x) {
     assert buffer.length >= bufferSize;
-    assert 0 <= idx && (idx + 8) < bufferSize;
+    assert 0 <= idx && (idx + 8) < bufferSize : "at: " + idx + " of " + bufferSize;
     UNSAFE.putDouble(buffer, BYTE_ARR_BASE_OFFSET + idx, x);
   }
 
   public void putByteShortAt(final int idx, final byte a, final short b) {
     assert buffer.length >= bufferSize;
-    assert 0 <= idx && (idx + 1 + 2) < bufferSize;
+    assert 0 <= idx && (idx + 1 + 2) < bufferSize : "at: " + idx + " of " + bufferSize;
     UNSAFE.putByte(buffer, BYTE_ARR_BASE_OFFSET + idx, a);
     UNSAFE.putShort(buffer, BYTE_ARR_BASE_OFFSET + idx + 1, b);
   }

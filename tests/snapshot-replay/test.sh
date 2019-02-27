@@ -43,15 +43,15 @@ SOM_DIR=$SCRIPT_PATH/../..
 for args in "${Savina[@]}"
 do
   counter=1
-  while [ $counter -le 10 ]
+  while [ $counter -le 1 ]
   do
 
       echo "$counter. $args"
       echo "Tracing:"
-      $SOM_DIR/som -EG -as -at -JXmx3000m -JXss16284k core-lib/Benchmarks/AsyncHarness.ns SavinaSnap.$args
+      $SOM_DIR/som -EG -as -at -t1 -JXmx3000m -JXss16284k core-lib/Benchmarks/AsyncHarness.ns SavinaSnap.$args
       echo ""
       echo "Replay:"
-      $SOM_DIR/som -EG -as -r -JXmx2000m -JXss16284k -vmd core-lib/Benchmarks/AsyncHarness.ns SavinaSnap.$args
+      $SOM_DIR/som -EG -as -r -t1 -JXmx2000m -JXss16284k -vmd core-lib/Benchmarks/AsyncHarness.ns SavinaSnap.$args
       echo ""
       echo "========================================================"
       echo ""
