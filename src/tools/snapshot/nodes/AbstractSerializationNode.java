@@ -7,7 +7,7 @@ import som.vm.VmSettings;
 import som.vmobjects.SAbstractObject;
 import som.vmobjects.SClass;
 import tools.snapshot.SnapshotBackend;
-import tools.snapshot.SnapshotBuffer;
+import tools.snapshot.SnapshotHeap;
 import tools.snapshot.deserialization.DeserializationBuffer;
 
 
@@ -17,7 +17,7 @@ public abstract class AbstractSerializationNode extends Node {
     assert VmSettings.SNAPSHOTS_ENABLED;
   }
 
-  public abstract long execute(Object o, SnapshotBuffer sb);
+  public abstract long execute(Object o, SnapshotHeap snapshotHeap);
 
   protected abstract Object deserialize(DeserializationBuffer bb);
 
@@ -25,8 +25,8 @@ public abstract class AbstractSerializationNode extends Node {
     return deserialize(bb);
   }
 
-  protected static SnapshotBuffer getBuffer() {
-    return SnapshotBackend.getValueBuffer();
+  protected static SnapshotHeap getBuffer() {
+    return SnapshotBackend.getValueHeap();
   }
 
   @TruffleBoundary
@@ -36,7 +36,12 @@ public abstract class AbstractSerializationNode extends Node {
     }
   }
 
-  protected static long getObjectLocation(final SAbstractObject obj, final long current) {
+  protected static long getObjectValueLocation(final SAbstractObject obj) {
+    assert obj.isValue();
+    return obj.getSnapshotLocation();
+  }
+
+  public static long getObjectLocation(final SAbstractObject obj, final long current) {
     if (obj.getSnapshotVersion() != current) {
       return -1;
     }

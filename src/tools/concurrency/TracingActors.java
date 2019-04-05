@@ -33,6 +33,7 @@ import tools.replay.TraceParser;
 import tools.snapshot.DeferredFarRefSerialization;
 import tools.snapshot.SnapshotBackend;
 import tools.snapshot.SnapshotBuffer;
+import tools.snapshot.SnapshotHeap;
 import tools.snapshot.deserialization.DeserializationBuffer;
 
 
@@ -165,7 +166,7 @@ public class TracingActors {
     }
 
     @TruffleBoundary // TODO: convert to an approach that constructs a cache
-    public void handleObjectsReferencedFromFarRefs(final SnapshotBuffer sb,
+    public void handleObjectsReferencedFromFarRefs(final SnapshotHeap buffer,
         final ClassPrim classPrim) {
 
       while (!externalReferences.isEmpty()) {
@@ -177,9 +178,9 @@ public class TracingActors {
           SClass clazz = classPrim.executeEvaluated(frt.target);
           long location;
           if (frt.target instanceof PromiseMessage) {
-            location = ((PromiseMessage) frt.target).forceSerialize(sb);
+            location = ((PromiseMessage) frt.target).forceSerialize(buffer);
           } else {
-            location = clazz.serialize(frt.target, sb);
+            location = clazz.serialize(frt.target, buffer);
           }
 
           frt.resolve(location);
@@ -233,7 +234,7 @@ public class TracingActors {
       return null;
     }
 
-    public void handleObjectsReferencedFromFarRefs(final SnapshotBuffer sb) {
+    public void handleObjectsReferencedFromFarRefs(final SnapshotHeap sb) {
       synchronized (externalReferences) {
         while (!externalReferences.isEmpty()) {
           DeferredFarRefSerialization frt = externalReferences.poll();

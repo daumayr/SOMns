@@ -72,7 +72,7 @@ public class VmSettings implements Settings {
     TEST_SNAPSHOTS = getBool("som.snapshotTest", false);
     TEST_SERIALIZE_ALL = getBool("som.actorSnapshotAll", false);
     SNAPSHOTS_ENABLED = getBool("som.actorSnapshot", false) || TEST_SNAPSHOTS;
-    TRACK_SNAPSHOT_ENTITIES = (REPLAY && SNAPSHOTS_ENABLED) || TEST_SNAPSHOTS;
+    TRACK_SNAPSHOT_ENTITIES = (REPLAY && SNAPSHOTS_ENABLED);
     SNAPSHOT_REPLAY = REPLAY && SNAPSHOTS_ENABLED;
 
     boolean dm = getBool("som.dynamicMetrics", false);

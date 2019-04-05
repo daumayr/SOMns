@@ -24,6 +24,7 @@ import som.vmobjects.SBlock;
 import som.vmobjects.SInvokable;
 import tools.snapshot.SnapshotBackend;
 import tools.snapshot.SnapshotBuffer;
+import tools.snapshot.SnapshotHeap;
 import tools.snapshot.deserialization.DeserializationBuffer;
 import tools.snapshot.deserialization.FixupInformation;
 
@@ -35,8 +36,8 @@ public abstract class BlockSerializationNode extends AbstractSerializationNode {
 
   // TODO specialize on different blocks
   @Specialization
-  public long serialize(final SBlock block, final SnapshotBuffer sb) {
-    long location = getObjectLocation(block, sb.getSnapshotVersion());
+  public long serialize(final SBlock block, final SnapshotHeap sh) {
+    long location = getObjectLocation(block, sh.getSnapshotVersion());
     if (location != -1) {
       return location;
     }
@@ -44,6 +45,7 @@ public abstract class BlockSerializationNode extends AbstractSerializationNode {
     MaterializedFrame mf = block.getContextOrNull();
 
     if (mf == null) {
+      SnapshotBuffer sb = sh.getBufferObject(SINVOKABLE_SIZE + 1);
       int start = sb.addObject(block, Classes.blockClass, SINVOKABLE_SIZE + 1);
       int base = start;
       SInvokable meth = block.getMethod();
@@ -51,13 +53,14 @@ public abstract class BlockSerializationNode extends AbstractSerializationNode {
       sb.putByteAt(base + 2, (byte) 0);
       return sb.calculateReferenceB(start);
     } else {
+      SnapshotBuffer sb = sh.getBufferObject(SINVOKABLE_SIZE + 1 + Long.BYTES);
       int start = sb.addObject(block, Classes.blockClass, SINVOKABLE_SIZE + 1 + Long.BYTES);
       int base = start;
       SInvokable meth = block.getMethod();
       sb.putShortAt(base, meth.getIdentifier().getSymbolId());
       sb.putByteAt(base + 2, (byte) 1);
 
-      long framelocation = meth.getFrameSerializer().execute(block, sb);
+      long framelocation = meth.getFrameSerializer().execute(block, sh);
 
       sb.putLongAt(base + 3, framelocation);
       return sb.calculateReferenceB(start);
@@ -155,7 +158,7 @@ public abstract class BlockSerializationNode extends AbstractSerializationNode {
 
     // Truffle doesn't seem to like me passing a frame, so we pass the entire block
     @Specialization
-    public long serialize(final SBlock block, final SnapshotBuffer sb) {
+    public long serialize(final SBlock block, final SnapshotHeap sh) {
       MaterializedFrame frame = block.getContext();
       Object[] args = frame.getArguments();
 
@@ -165,6 +168,7 @@ public abstract class BlockSerializationNode extends AbstractSerializationNode {
       assert slotCnt < 0xFF : "Too many slots";
       assert args.length < 0xFF : "Too many arguments";
 
+      SnapshotBuffer sb = sh.getBuffer(2 + ((args.length + slotCnt) * Long.BYTES));
       int start =
           sb.reserveSpace(2 + ((args.length + slotCnt) * Long.BYTES));
       int base = start;
@@ -175,7 +179,7 @@ public abstract class BlockSerializationNode extends AbstractSerializationNode {
       for (int i = 0; i < args.length; i++) {
         // TODO optimization: cache argument serialization
         sb.putLongAt(base + (i * Long.BYTES),
-            classPrim.executeEvaluated(args[i]).serialize(args[i], sb));
+            classPrim.executeEvaluated(args[i]).serialize(args[i], sh));
       }
 
       base += (args.length * Long.BYTES);
@@ -193,33 +197,33 @@ public abstract class BlockSerializationNode extends AbstractSerializationNode {
         Object value = frame.getValue(slot);
         long valueLocation;
         if (value == Nil.nilObject) {
-          valueLocation = Nil.nilObject.getSOMClass().serialize(Nil.nilObject, sb);
+          valueLocation = Nil.nilObject.getSOMClass().serialize(Nil.nilObject, sh);
         } else {
           switch (frameDescriptor.getFrameSlotKind(slot)) {
             case Boolean:
-              valueLocation = Classes.booleanClass.serialize(value, sb);
+              valueLocation = Classes.booleanClass.serialize(value, sh);
               break;
             case Double:
-              valueLocation = Classes.doubleClass.serialize(value, sb);
+              valueLocation = Classes.doubleClass.serialize(value, sh);
               break;
             case Long:
-              valueLocation = Classes.integerClass.serialize(value, sb);
+              valueLocation = Classes.integerClass.serialize(value, sh);
               break;
             case Object:
               // We are going to represent this as a boolean, the slot will handled in replay
               if (value instanceof FrameOnStackMarker) {
                 value = ((FrameOnStackMarker) value).isOnStack();
-                valueLocation = Classes.booleanClass.serialize(value, sb);
+                valueLocation = Classes.booleanClass.serialize(value, sh);
               } else {
-              assert value instanceof SAbstractObject || value instanceof String : "was"
-                  + value.toString();
-                valueLocation = classPrim.executeEvaluated(value).serialize(value, sb);
+                assert value instanceof SAbstractObject || value instanceof String : "was"
+                    + value.toString();
+                valueLocation = classPrim.executeEvaluated(value).serialize(value, sh);
               }
               break;
             case Illegal:
               // Uninitialized variables
               valueLocation = classPrim.executeEvaluated(frameDescriptor.getDefaultValue())
-                                       .serialize(frameDescriptor.getDefaultValue(), sb);
+                                       .serialize(frameDescriptor.getDefaultValue(), sh);
               break;
             default:
               throw new IllegalArgumentException("Unexpected SlotKind");

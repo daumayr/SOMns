@@ -29,6 +29,7 @@ import som.vmobjects.SObject.SImmutableObject;
 import som.vmobjects.SObject.SMutableObject;
 import som.vmobjects.SObjectWithClass.SObjectWithoutFields;
 import tools.snapshot.SnapshotBuffer;
+import tools.snapshot.SnapshotHeap;
 import tools.snapshot.deserialization.DeserializationBuffer;
 import tools.snapshot.deserialization.FixupInformation;
 import tools.snapshot.nodes.ObjectSerializationNodesFactory.SObjectSerializationNodeFactory;
@@ -152,6 +153,7 @@ public abstract class ObjectSerializationNodes {
     @Children private CachedSerializationNode[] cachedSerializers;
     @Child ClassPrim                            classPrim = ClassPrimFactory.create(null);
     protected final ObjectLayout                layout;
+    protected final boolean                     isValue;
 
     protected SObjectSerializationNode(final ClassFactory instanceFactory,
         final CachedSlotRead[] reads, final int depth) {
@@ -159,20 +161,24 @@ public abstract class ObjectSerializationNodes {
       layout = classFact.getInstanceLayout();
       fieldReads = insert(reads);
       fieldCnt = fieldReads.length;
+      isValue = classFact.isDeclaredAsValue() || classFact.getMixinDefinition().isModule();
 
       cachedSerializers = new CachedSerializationNode[fieldCnt];
       for (int i = 0; i < fieldCnt; i++) {
         cachedSerializers[i] = CachedSerializationNodeFactory.create(depth);
       }
+
+      classFact.isDeclaredAsValue();
     }
 
     protected SObjectSerializationNode(final ClassFactory instanceFactory, final int depth) {
       this(instanceFactory, createReadNodes(instanceFactory), depth);
     }
 
-    @Specialization
-    public long serialize(final SObject so, final SnapshotBuffer sb) {
-      long location = getObjectLocation(so, sb.getSnapshotVersion());
+    @Specialization(guards = "!isValue")
+    public long serialize(final SObject so, final SnapshotHeap sh) {
+      assert so.isValue() == isValue : so;
+      long location = getObjectLocation(so, sh.getSnapshotVersion());
       if (location != -1) {
         return location;
       }
@@ -185,19 +191,45 @@ public abstract class ObjectSerializationNodes {
       if (!layout.isValid()) {
         // replace this with a new node for the new layout
         SObjectSerializationNode replacement =
-            SObjectSerializationNodeFactory.create(classFact,
-                createReadNodes(so.getFactory()), depth);
-        return replace(replacement).execute(so, sb);
+            replace(SObjectSerializationNodeFactory.create(classFact,
+                createReadNodes(so.getFactory()), depth));
+        return replacement.execute(so, sh);
       } else {
-        return doCached(so, sb);
+        SnapshotBuffer sb = sh.getBufferObject(FIELD_SIZE * fieldCnt);
+        int base = sb.addObject(so, so.getSOMClass(), FIELD_SIZE * fieldCnt);
+        return doCached(so, sb, base);
+      }
+    }
+
+    @Specialization(guards = "isValue")
+    public long serializeValue(final SObject so, final SnapshotHeap sh) {
+      assert so.isValue() == isValue;
+      long location = getObjectValueLocation(so);
+      if (location != -1) {
+        return location;
+      }
+
+      if (!so.isLayoutCurrent()) {
+        CompilerDirectives.transferToInterpreter();
+        ObjectTransitionSafepoint.INSTANCE.transitionObject(so);
+      }
+
+      if (!layout.isValid()) {
+        // replace this with a new node for the new layout
+        SObjectSerializationNode replacement =
+            replace(SObjectSerializationNodeFactory.create(classFact,
+                createReadNodes(so.getFactory()), depth));
+        return replacement.execute(so, sh);
+      } else {
+        SnapshotBuffer vb = getBuffer().getBufferObject(FIELD_SIZE * fieldCnt);
+        int base = vb.addValueObject(so, so.getSOMClass(), FIELD_SIZE * fieldCnt);
+        // as contents of a value have to be values we can just pass vb.
+        return doCached(so, vb, base);
       }
     }
 
     @ExplodeLoop
-    public long doCached(final SObject o, final SnapshotBuffer sb) {
-      int start = sb.addObject(o, o.getSOMClass(), FIELD_SIZE * fieldCnt);
-      int base = start;
-
+    public long doCached(final SObject o, final SnapshotBuffer sb, final int base) {
       assert fieldCnt < MAX_FIELD_CNT;
 
       for (int i = 0; i < fieldCnt; i++) {
@@ -205,9 +237,9 @@ public abstract class ObjectSerializationNodes {
         // TODO type profiles could be an optimization (separate profile for each slot)
         // TODO optimize, maybe it is better to add an integer to the objects (indicating their
         // offset) rather than using a map.
-        sb.putLongAt(base + (8 * i), cachedSerializers[i].execute(value, sb));
+        sb.putLongAt(base + (8 * i), cachedSerializers[i].execute(value, sb.getHeap()));
       }
-      return sb.calculateReferenceB(start);
+      return sb.calculateReferenceB(base);
     }
 
     @Override
@@ -265,11 +297,12 @@ public abstract class ObjectSerializationNodes {
 
     @ExplodeLoop
     @Specialization
-    public long serialize(final SObjectWithoutFields o, final SnapshotBuffer sb) {
-      long location = getObjectLocation(o, sb.getSnapshotVersion());
+    public long serialize(final SObjectWithoutFields o, final SnapshotHeap sh) {
+      long location = getObjectLocation(o, sh.getSnapshotVersion());
       if (location != -1) {
         return location;
       }
+      SnapshotBuffer sb = sh.getBufferObject(0);
       return sb.calculateReferenceB(sb.addObject(o, o.getSOMClass(), 0));
     }
 

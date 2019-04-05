@@ -46,6 +46,7 @@ public final class SnapshotParser {
   private DeserializationBuffer                                db;
   private int                                                  objectcnt;
   private HashSet<EventualMessage>                             sentPMsgs;
+  private HashSet<Long>                                        messagel;
 
   private SnapshotParser(final VM vm) {
     this.vm = vm;
@@ -53,6 +54,7 @@ public final class SnapshotParser {
     this.messageLocations = EconomicMap.create();
     this.classLocations = EconomicMap.create();
     this.sentPMsgs = new HashSet<>();
+    this.messagel = new HashSet<>();
   }
 
   // preparations to be done before anything else
@@ -92,6 +94,7 @@ public final class SnapshotParser {
           messageLocations.put(actorId, new PriorityQueue<>());
         }
         messageLocations.get(actorId).add(new MessageLocation(msgNo, location));
+        messagel.add(location);
       }
 
       long numOuters = b.getLong();
@@ -151,11 +154,16 @@ public final class SnapshotParser {
               } else {
                 messagesNeedingFixup.add((PromiseMessage) em);
               }
+            } else if (((PromiseMessage) em).getPromise()
+                                            .getValueForSnapshot() != em.getArgs()[0]) {
+              // non promise deviating from promise result
+              System.out.println("PROBLEM");
             }
           }
 
           if (em.getResolver() != null && em.getResolver().getPromise().isCompleted()
               && em.getArgs()[0] instanceof SClass) {
+            // Constructor Message
             SPromise cp = em.getResolver().getPromise();
             // need to unresolve this promise...
             cp.unresolveFromSnapshot(Resolution.UNRESOLVED);
@@ -272,6 +280,10 @@ public final class SnapshotParser {
       b.flip();
       assert b.remaining() >= bytes;
     }
+  }
+
+  public static boolean isTracedMessage(final long location) {
+    return parser.messagel.contains(location);
   }
 
   public static ReplayActor getCurrentActor() {

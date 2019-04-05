@@ -63,4 +63,8 @@ class System usingVmMirror: vmMirror = Value (
 
   (* Checking if extensions are supported by the current VM *)
   public supportsExtensions = ( ^ vmMirror featuresSupportsExtensions: nil )
+
+  public serialize: object = (
+    vmMirror serialize: object.
+  )
 )

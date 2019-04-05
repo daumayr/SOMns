@@ -26,6 +26,7 @@ import tools.replay.PassiveEntityWithEvents;
 import tools.replay.ReplayRecord;
 import tools.replay.TraceRecord;
 import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
+import tools.snapshot.SnapshotBackend;
 import tools.snapshot.nodes.PromiseSerializationNodesFactory.PromiseSerializationNodeFactory;
 import tools.snapshot.nodes.PromiseSerializationNodesFactory.ResolverSerializationNodeFactory;
 
@@ -234,6 +235,12 @@ public class SPromise extends SObjectWithClass {
   }
 
   public final void registerWhenResolvedUnsynced(final PromiseMessage msg) {
+
+    // STracingPromise sp = (STracingPromise) this;
+    // TODO: implement fix
+    // assert sp.getSnapshotLocation() == -1
+    // || sp.getSnapshotVersion() != SnapshotBackend.getSnapshotVersion();
+
     if (whenResolved == null) {
       whenResolved = msg;
     } else {
@@ -405,6 +412,8 @@ public class SPromise extends SObjectWithClass {
     }
 
     protected int version;
+    protected byte    markVersion;
+    protected boolean markUnresolvedSnapshot = false;
 
     @Override
     public int getNextEventNumber() {
@@ -508,6 +517,17 @@ public class SPromise extends SObjectWithClass {
       assert npr != null;
       assert npr.type == TraceRecord.PROMISE_RESOLUTION_END : "was " + npr.type + " in "
           + current.getId() + " for " + this.hashCode();
+    }
+
+    public void resetMark() {
+      markUnresolvedSnapshot = false;
+    }
+
+    public boolean isMarked(final Byte version) {
+      if (markVersion != version) {
+        return false;
+      }
+      return markUnresolvedSnapshot;
     }
 
     /**
@@ -843,7 +863,15 @@ public class SPromise extends SObjectWithClass {
         final RecordOneEvent tracePromiseResolutionEnd2) {
       assert !(result instanceof SPromise);
 
-      if (VmSettings.KOMPOS_TRACING) {
+        if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.REPLAY) {
+          if (p.getSnapshotLocation() == -1
+              || p.getSnapshotVersion() != TracingActivityThread.currentThread()
+                                                                .getSnapshotId()) {
+            ((STracingPromise) p).markUnresolvedSnapshot = true;
+            ((STracingPromise) p).markVersion = TracingActivityThread.currentThread()
+                                                                     .getSnapshotId();
+          }
+      } else if (VmSettings.KOMPOS_TRACING) {
         if (type == Resolution.SUCCESSFUL && p.resolutionState != Resolution.CHAINED) {
           KomposTrace.promiseResolution(p.getPromiseId(), result);
         } else if (type == Resolution.ERRONEOUS) {

@@ -65,7 +65,7 @@ public class SnapshotBackend {
   private static final EconomicMap<Integer, Long>               valueClassLocations;
   private static final ConcurrentHashMap<TracingActor, Integer> deferredSerializations;
   private static final WeakHashMap<Object, Long>                valuePool;
-  private static SnapshotBuffer                                 valueBuffer;
+  private static SnapshotHeap                                   valueBuffer;
 
   private static final ArrayList<Long> lostResolutions;
 
@@ -101,7 +101,7 @@ public class SnapshotBackend {
       deferredSerializations = new ConcurrentHashMap<>();
       lostResolutions = new ArrayList<>();
       valuePool = new WeakHashMap<>();
-      valueBuffer = new SnapshotBuffer((byte) 0);
+      valueBuffer = new SnapshotHeap((byte) 0);
     } else {
       classDictionary = null;
       symbolDictionary = null;
@@ -287,8 +287,11 @@ public class SnapshotBackend {
     buffers.clear();
     messages.clear();
     valueBuffer.snapshotVersion = (byte) (snapshotVersion + 1);
-    if (valueBuffer.changeBufferIfNecessary()) {
-      valuePool.clear();
+    if (valueBuffer.size > VmSettings.BUFFER_SIZE * 50) {
+      synchronized (valuePool) {
+        valuePool.clear();
+        valueBuffer = new SnapshotHeap((byte) (snapshotVersion + 1));
+      }
     }
 
     synchronized (classLocations) {
@@ -299,6 +302,10 @@ public class SnapshotBackend {
 
     // notify the worker in the tracingbackend about this change.
     TracingBackend.newSnapshot(snapshotVersion);
+  }
+
+  public static synchronized void incrementPhaseForSerializationBench() {
+    snapshotVersion++;
   }
 
   public static byte getSnapshotVersion() {
@@ -312,7 +319,7 @@ public class SnapshotBackend {
     return valuePool;
   }
 
-  public static SnapshotBuffer getValueBuffer() {
+  public static SnapshotHeap getValueHeap() {
     return valueBuffer;
   }
 
@@ -329,14 +336,14 @@ public class SnapshotBackend {
     }
   }
 
-  public static void registerSnapshotBuffer(final SnapshotBuffer sb,
+  public static void registerSnapshotBuffer(final SnapshotHeap snapshotHeap,
       final ArrayList<Long> messageLocations) {
     if (VmSettings.TEST_SERIALIZE_ALL) {
       return;
     }
 
-    assert sb != null;
-    buffers.add(sb);
+    assert snapshotHeap != null;
+    buffers.add(snapshotHeap);
     messages.add(messageLocations);
   }
 
@@ -381,6 +388,7 @@ public class SnapshotBackend {
 
     String name = VmSettings.TRACE_FILE + '.' + snapshotVersion;
     File f = new File(name + ".snap");
+    int size = 0;
     try (FileOutputStream fos = new FileOutputStream(f)) {
       // Write Message Locations
       int offset = writeMessageLocations(fos);
@@ -388,7 +396,7 @@ public class SnapshotBackend {
       offset += writeLostResolutions(fos);
 
       // handle the unfinished serialization.
-      SnapshotBuffer buffer = buffers.peek();
+      SnapshotHeap buffer = buffers.peek();
 
       while (!deferredSerializations.isEmpty()) {
         for (TracingActor sr : deferredSerializations.keySet()) {
@@ -406,10 +414,11 @@ public class SnapshotBackend {
 
       // Write Heap
       while (!buffers.isEmpty()) {
-        SnapshotBuffer sb = buffers.poll();
-        fos.getChannel().write(ByteBuffer.wrap(sb.getRawBuffer(), 0, sb.position()));
-        fos.flush();
+        SnapshotHeap sh = buffers.poll();
+        sh.writeToChannel(fos);
       }
+
+      Output.println("Snapshotsize: " + fos.getChannel().size());
 
     } catch (IOException e1) {
       throw new RuntimeException(e1);
@@ -461,11 +470,11 @@ public class SnapshotBackend {
     bb.putLong(numBuffers);
 
     int bufferStart = msgSize + registrySize;
-    for (SnapshotBuffer sb : buffers) {
-      long id = sb.threadId;
+    for (SnapshotHeap sh : buffers) {
+      long id = sh.threadId;
       bb.putLong(id);
       bb.putLong(bufferStart);
-      bufferStart += sb.position();
+      bufferStart += sh.size();
     }
 
     bb.rewind();
@@ -479,11 +488,12 @@ public class SnapshotBackend {
   private static int writeMessageLocations(final FileOutputStream fos)
       throws IOException {
     int entryCount = 0;
+
     for (ArrayList<Long> al : messages) {
       assert al.size() % 2 == 0;
       entryCount += al.size();
     }
-
+    Output.println("registered messages: " + (entryCount / 2));
     int msgSize = ((entryCount + 1) * Long.BYTES);
     ByteBuffer bb =
         ByteBuffer.allocate(msgSize).order(ByteOrder.LITTLE_ENDIAN);
@@ -547,9 +557,9 @@ public class SnapshotBackend {
   }
 
   public static void registerLostResolution(final SResolver resolver,
-      final SnapshotBuffer sb) {
+      final SnapshotHeap sh) {
 
-    long resolverLocation = SResolver.getResolverClass().serialize(resolver, sb);
+    long resolverLocation = SResolver.getResolverClass().serialize(resolver, sh);
 
     if (!resolver.getPromise().isCompleted()) {
       Output.println("skipped!!");
@@ -558,9 +568,11 @@ public class SnapshotBackend {
 
     Object result = resolver.getPromise().getValueForSnapshot();
 
-    long resultLocation = Types.getClassOf(result).serialize(result, sb);
+    long resultLocation = Types.getClassOf(result).serialize(result, sh);
 
+    SnapshotBuffer sb = sh.getBuffer(Long.BYTES * 2 + Integer.BYTES + 1);
     int base = sb.reserveSpace(Long.BYTES * 2 + Integer.BYTES + 1);
+
     synchronized (lostResolutions) {
       lostResolutions.add(sb.calculateReference(base));
     }
@@ -568,7 +580,7 @@ public class SnapshotBackend {
     sb.putLongAt(base, resolverLocation);
     sb.putLongAt(base + Long.BYTES, resultLocation);
     sb.putIntAt(base + Long.BYTES * 2,
-        ((TracingActor) sb.getOwner().getCurrentActor()).getActorId());
+        ((TracingActor) sh.getOwner().getCurrentActor()).getActorId());
     sb.putByteAt(base + Long.BYTES * 2 + Integer.BYTES,
         (byte) resolver.getPromise().getResolutionStateUnsync().ordinal());
 

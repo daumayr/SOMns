@@ -40,9 +40,9 @@ public abstract class SAbstractObject implements SomInteropObject {
   }
 
   public long getSnapshotLocationAndUpdate(final SnapshotBuffer sb) {
-    if (snapshotLocation == -1 || snapshotVersion != sb.getSnapshotVersion()) {
-      snapshotVersion = sb.getSnapshotVersion();
-      snapshotLocation = getSOMClass().serialize(this, sb);
+    if (snapshotLocation == -1 || snapshotVersion != sb.getHeap().getSnapshotVersion()) {
+      snapshotVersion = sb.getHeap().getSnapshotVersion();
+      snapshotLocation = getSOMClass().serialize(this, sb.getHeap());
     }
     return snapshotLocation;
   }

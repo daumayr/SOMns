@@ -14,7 +14,7 @@ import som.primitives.ObjectPrims.ClassPrim;
 import som.primitives.ObjectPrimsFactory.ClassPrimFactory;
 import som.vm.VmSettings;
 import som.vmobjects.SClass;
-import tools.snapshot.SnapshotBuffer;
+import tools.snapshot.SnapshotHeap;
 import tools.snapshot.deserialization.DeserializationBuffer;
 import tools.snapshot.nodes.ObjectSerializationNodes.SObjectSerializationNode;
 
@@ -57,21 +57,21 @@ public abstract class CachedSerializationNode extends AbstractSerializationNode 
 
   @Specialization(guards = {"execGuard(o, guard, objectLayoutIsLatest)", "depth < MAX_DEPTH"},
       assumptions = "objectLayoutIsLatest")
-  public long serialize(final Object o, final SnapshotBuffer sb,
+  public long serialize(final Object o, final SnapshotHeap sh,
       @Cached("createDispatchGuard(o)") final DispatchGuard guard,
       @Cached("guard.getAssumption()") final Assumption objectLayoutIsLatest,
       @Cached("getSerializer(o, depth)") final AbstractSerializationNode serializer) {
-    return serializer.execute(o, sb);
+    return serializer.execute(o, sh);
   }
 
   @Specialization
-  public long fallback(final Object o, final SnapshotBuffer sb) {
+  public long fallback(final Object o, final SnapshotHeap sh) {
     if (classprim == null) {
       CompilerDirectives.transferToInterpreter();
       classprim = ClassPrimFactory.create(null);
     }
 
-    return classprim.executeEvaluated(o).serialize(o, sb);
+    return classprim.executeEvaluated(o).serialize(o, sh);
   }
 
   @Override

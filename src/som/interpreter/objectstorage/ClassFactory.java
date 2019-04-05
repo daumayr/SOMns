@@ -18,6 +18,7 @@ import som.vm.VmSettings;
 import som.vmobjects.SClass;
 import som.vmobjects.SSymbol;
 import tools.snapshot.SnapshotBuffer;
+import tools.snapshot.SnapshotHeap;
 import tools.snapshot.deserialization.DeserializationBuffer;
 import tools.snapshot.nodes.AbstractSerializationNode;
 import tools.snapshot.nodes.SerializerRootNode;
@@ -69,7 +70,7 @@ public final class ClassFactory {
   protected final AtomicInteger identityGen;
 
   @CompilationFinal private NodeFactory<? extends AbstractSerializationNode> serializerFactory;
-  @CompilationFinal private AbstractSerializationNode                        deserializer;
+  @CompilationFinal private SerializerRootNode                               serializerRoot;
 
   public ClassFactory(final SSymbol name, final MixinDefinition mixinDef,
       final EconomicSet<SlotDefinition> instanceSlots,
@@ -126,6 +127,9 @@ public final class ClassFactory {
 
   public ObjectLayout getInstanceLayout() {
     VM.callerNeedsToBeOptimized("Should not be called on fast path");
+    if (instanceLayout != null) {
+      assert instanceLayout.isValid();
+    }
     return instanceLayout;
   }
 
@@ -154,23 +158,22 @@ public final class ClassFactory {
       final NodeFactory<? extends AbstractSerializationNode> factory,
       final AbstractSerializationNode deserializer) {
     serializerFactory = factory;
-    new SerializerRootNode(deserializer);
+
     // this is needed since the deserialize is currently
     // still used for serialization, and some classes do
     // rewriting with `replace()`
-
-    this.deserializer = deserializer;
+    serializerRoot = new SerializerRootNode(deserializer);
   }
 
   public Object deserialize(final DeserializationBuffer bb, final SClass clazz) {
-    return deserializer.deserialize(bb, clazz);
+    return serializerRoot.getSerializer().deserialize(bb, clazz);
   }
 
-  public long serialize(final Object o, final SnapshotBuffer sb) {
+  public long serialize(final Object o, final SnapshotHeap snapshotHeap) {
     VM.callerNeedsToBeOptimized("This serialize method should not be used from PEed code.");
     // TODO: we are using the deserialize node here. The deserializer and serializer should be
     // split. This would also allow us to optimize deserialization.
-    return deserializer.execute(o, sb);
+    return serializerRoot.getSerializer().execute(o, snapshotHeap);
   }
 
   /**

@@ -100,6 +100,10 @@ public class DeserializationBuffer {
     return result;
   }
 
+  public long getLastRef() {
+    return lastRef;
+  }
+
   public long readOuterForClass(final long classLocation) {
     long previous = this.position();
     this.position(classLocation);

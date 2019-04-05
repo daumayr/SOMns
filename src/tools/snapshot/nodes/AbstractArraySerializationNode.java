@@ -10,6 +10,7 @@ import som.vmobjects.SArray;
 import som.vmobjects.SArray.PartiallyEmptyArray;
 import som.vmobjects.SClass;
 import tools.snapshot.SnapshotBuffer;
+import tools.snapshot.SnapshotHeap;
 import tools.snapshot.deserialization.DeserializationBuffer;
 import tools.snapshot.deserialization.FixupInformation;
 
@@ -36,14 +37,15 @@ public abstract class AbstractArraySerializationNode extends AbstractSerializati
   }
 
   @Specialization(guards = "sa.isBooleanType()")
-  protected long doBoolean(final SArray sa, final SnapshotBuffer sb) {
-    long location = getObjectLocation(sa, sb.getSnapshotVersion());
+  protected long doBoolean(final SArray sa, final SnapshotHeap sh) {
+    long location = getObjectLocation(sa, sh.getSnapshotVersion());
     if (location != -1) {
       return location;
     }
 
     boolean[] ba = sa.getBooleanStorage();
     int requiredSpace = ba.length;
+    SnapshotBuffer sb = sh.getBufferObject(requiredSpace + 5);
     int start = sb.addObject(sa, clazz, requiredSpace + 5);
     int base = start;
     sb.putByteAt(base, TYPE_BOOLEAN);
@@ -57,14 +59,15 @@ public abstract class AbstractArraySerializationNode extends AbstractSerializati
   }
 
   @Specialization(guards = "sa.isDoubleType()")
-  protected long doDouble(final SArray sa, final SnapshotBuffer sb) {
-    long location = getObjectLocation(sa, sb.getSnapshotVersion());
+  protected long doDouble(final SArray sa, final SnapshotHeap sh) {
+    long location = getObjectLocation(sa, sh.getSnapshotVersion());
     if (location != -1) {
       return location;
     }
 
     double[] da = sa.getDoubleStorage();
     int requiredSpace = da.length * Double.BYTES;
+    SnapshotBuffer sb = sh.getBufferObject(requiredSpace + 5);
     int start = sb.addObject(sa, clazz, requiredSpace + 5);
     int base = start;
     sb.putByteAt(base, TYPE_DOUBLE);
@@ -78,14 +81,15 @@ public abstract class AbstractArraySerializationNode extends AbstractSerializati
   }
 
   @Specialization(guards = "sa.isLongType()")
-  protected long doLong(final SArray sa, final SnapshotBuffer sb) {
-    long location = getObjectLocation(sa, sb.getSnapshotVersion());
+  protected long doLong(final SArray sa, final SnapshotHeap sh) {
+    long location = getObjectLocation(sa, sh.getSnapshotVersion());
     if (location != -1) {
       return location;
     }
 
     long[] la = sa.getLongStorage();
     int requiredSpace = la.length * Long.BYTES;
+    SnapshotBuffer sb = sh.getBufferObject(requiredSpace + 5);
     int start = sb.addObject(sa, clazz, requiredSpace + 5);
     int base = start;
     sb.putByteAt(base, TYPE_LONG);
@@ -99,21 +103,22 @@ public abstract class AbstractArraySerializationNode extends AbstractSerializati
   }
 
   @Specialization(guards = "sa.isObjectType()")
-  protected long doObject(final SArray sa, final SnapshotBuffer sb) {
-    long location = getObjectLocation(sa, sb.getSnapshotVersion());
+  protected long doObject(final SArray sa, final SnapshotHeap sh) {
+    long location = getObjectLocation(sa, sh.getSnapshotVersion());
     if (location != -1) {
       return location;
     }
 
     Object[] oa = sa.getObjectStorage();
     int requiredSpace = oa.length * 8;
+    SnapshotBuffer sb = sh.getBufferObject(requiredSpace + 5);
     int start = sb.addObject(sa, clazz, requiredSpace + 5);
     int base = start;
     sb.putByteAt(base, TYPE_OBJECT);
     sb.putIntAt(base + 1, oa.length);
     base += 5;
     for (Object obj : oa) {
-      long pos = classPrim.executeEvaluated(obj).serialize(obj, sb);
+      long pos = classPrim.executeEvaluated(obj).serialize(obj, sh);
       sb.putLongAt(base, pos);
       base += Long.BYTES;
     }
@@ -121,12 +126,13 @@ public abstract class AbstractArraySerializationNode extends AbstractSerializati
   }
 
   @Specialization(guards = "sa.isEmptyType()")
-  protected long doEmpty(final SArray sa, final SnapshotBuffer sb) {
-    long location = getObjectLocation(sa, sb.getSnapshotVersion());
+  protected long doEmpty(final SArray sa, final SnapshotHeap sh) {
+    long location = getObjectLocation(sa, sh.getSnapshotVersion());
     if (location != -1) {
       return location;
     }
 
+    SnapshotBuffer sb = sh.getBufferObject(5);
     int start = sb.addObject(sa, clazz, 5);
     int base = start;
     sb.putByteAt(base, TYPE_EMPTY);
@@ -135,8 +141,8 @@ public abstract class AbstractArraySerializationNode extends AbstractSerializati
   }
 
   @Specialization(guards = "sa.isPartiallyEmptyType()")
-  protected long doPartiallyEmpty(final SArray sa, final SnapshotBuffer sb) {
-    long location = getObjectLocation(sa, sb.getSnapshotVersion());
+  protected long doPartiallyEmpty(final SArray sa, final SnapshotHeap sh) {
+    long location = getObjectLocation(sa, sh.getSnapshotVersion());
     if (location != -1) {
       return location;
     }
@@ -145,13 +151,14 @@ public abstract class AbstractArraySerializationNode extends AbstractSerializati
 
     Object[] oa = pea.getStorage();
     int requiredSpace = oa.length * 8;
+    SnapshotBuffer sb = sh.getBufferObject(requiredSpace + 5);
     int start = sb.addObject(sa, clazz, requiredSpace + 5);
     int base = start;
     sb.putByteAt(base, TYPE_OBJECT);
     sb.putIntAt(base + 1, oa.length);
     base += 5;
     for (Object obj : oa) {
-      long pos = classPrim.executeEvaluated(obj).serialize(obj, sb);
+      long pos = classPrim.executeEvaluated(obj).serialize(obj, sh);
       sb.putLongAt(base, pos);
       base += Long.BYTES;
     }

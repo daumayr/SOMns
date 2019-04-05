@@ -23,7 +23,7 @@ import tools.debugger.entities.DynamicScopeType;
 import tools.replay.TraceRecord;
 import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
 import tools.snapshot.SnapshotBackend;
-import tools.snapshot.SnapshotBuffer;
+import tools.snapshot.SnapshotHeap;
 import tools.snapshot.nodes.MessageSerializationNode;
 import tools.snapshot.nodes.MessageSerializationNodeFactory;
 
@@ -81,14 +81,15 @@ public abstract class ReceivedRootNode extends RootNode {
     ActorProcessingThread currentThread = (ActorProcessingThread) Thread.currentThread();
 
     if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.TEST_SNAPSHOTS && !VmSettings.REPLAY) {
-      SnapshotBuffer sb = currentThread.getSnapshotBuffer();
-      sb.getRecord().handleObjectsReferencedFromFarRefs(sb, classPrim);
+      SnapshotHeap sh = currentThread.getSnapshotHeap();
 
-      if (sb.needsToBeSnapshot(msg.getMessageId())) {
+      sh.getActor().handleObjectsReferencedFromFarRefs(sh, classPrim);
+
+      if (sh.needsToBeSnapshot(msg.getSnapshotPhase())) {
         long msgIdentifier =
             ((TracingActor) msgClass.profile(msg).getTarget()).getMessageIdentifier();
-        long location = serializeMessageIfNecessary(msg, sb);
-        sb.getOwner().addMessageLocation(msgIdentifier, location);
+        long location = serializeMessageIfNecessary(msg, sh);
+        sh.getOwner().addMessageLocation(msgIdentifier, location);
       }
     }
 
@@ -127,10 +128,10 @@ public abstract class ReceivedRootNode extends RootNode {
             && currentThread.getSnapshotId() != SnapshotBackend.getSnapshotVersion()) {
           // Snapshot was trigged while executing this message
           // we need to serialize the promise and mark it.
-          SnapshotBuffer sb = currentThread.getSnapshotBuffer();
+          SnapshotHeap sh = currentThread.getSnapshotHeap();
           SResolver resolver = msg.getResolver();
 
-          SnapshotBackend.registerLostResolution(resolver, sb);
+          SnapshotBackend.registerLostResolution(resolver, sh);
         }
       }
 
@@ -146,10 +147,8 @@ public abstract class ReceivedRootNode extends RootNode {
   }
 
   private long serializeMessageIfNecessary(final EventualMessage msg,
-      final SnapshotBuffer sb) {
-
-    // message wasn't serialized before
-    return sb.calculateReference(serializer.execute(msg, sb));
+      final SnapshotHeap sh) {
+    return serializer.execute(msg, sh);
   }
 
   protected final void resolvePromise(final VirtualFrame frame,

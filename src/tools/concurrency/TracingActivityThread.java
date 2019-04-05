@@ -17,7 +17,7 @@ import tools.debugger.entities.SteppingType;
 import tools.replay.ReplayRecord;
 import tools.replay.TraceRecord;
 import tools.snapshot.SnapshotBackend;
-import tools.snapshot.SnapshotBuffer;
+import tools.snapshot.SnapshotHeap;
 
 
 public abstract class TracingActivityThread extends ForkJoinWorkerThread {
@@ -36,7 +36,7 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
   public long erroredPromises;
 
   protected final TraceBuffer traceBuffer;
-  protected SnapshotBuffer    snapshotBuffer;
+  protected SnapshotHeap      snapshotHeap;
   protected ArrayList<Long>   messageLocations;
   protected Object[]          externalData;
   protected int               extIndex = 0;
@@ -93,7 +93,7 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
     this.vm = vm;
 
     if (VmSettings.SNAPSHOTS_ENABLED) {
-      this.snapshotBuffer = new SnapshotBuffer((ActorProcessingThread) this);
+      this.snapshotHeap = new SnapshotHeap((ActorProcessingThread) this);
       this.messageLocations = new ArrayList<>();
     }
 
@@ -180,6 +180,10 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
     }
   }
 
+  public final void incrementSnapshotForSerialization() {
+    this.snapshotId++;
+  }
+
   public final void addMessageLocation(final long actorId, final long messageAdress) {
     messageLocations.add(actorId);
     messageLocations.add(messageAdress);
@@ -203,7 +207,7 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
     }
     if (VmSettings.SNAPSHOTS_ENABLED) {
       if (this.snapshotId == SnapshotBackend.getSnapshotVersion()) {
-        SnapshotBackend.registerSnapshotBuffer(snapshotBuffer, messageLocations);
+        SnapshotBackend.registerSnapshotBuffer(snapshotHeap, messageLocations);
       }
     }
 
@@ -234,11 +238,11 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
     return threadId;
   }
 
-  public SnapshotBuffer getSnapshotBuffer() {
+  public SnapshotHeap getSnapshotHeap() {
     if (SnapshotBackend.getSnapshotVersion() != this.snapshotId) {
       newSnapshot();
     }
-    return snapshotBuffer;
+    return snapshotHeap;
   }
 
   public byte getSnapshotId() {
@@ -247,6 +251,7 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
 
   private void newSnapshot() {
     TracingActor ta = (TracingActor) ((ActorProcessingThread) this).getCurrentActor();
+
     if (VmSettings.ACTOR_TRACING) {
       TraceActorContextNode tracer = ta.getActorContextNode();
       traceBuffer.swapStorage();
@@ -262,8 +267,8 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
     }
     this.snapshotId = SnapshotBackend.getSnapshotVersion();
 
-    // get net snapshotbuffer
-    this.snapshotBuffer = new SnapshotBuffer((ActorProcessingThread) this);
+    this.snapshotHeap = new SnapshotHeap((ActorProcessingThread) this);
+
     this.messageLocations.clear();
   }
 

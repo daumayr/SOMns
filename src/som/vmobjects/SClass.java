@@ -49,7 +49,7 @@ import som.vm.VmSettings;
 import som.vm.constants.Classes;
 import tools.concurrency.TracingActors.TracingActor;
 import tools.snapshot.SnapshotBackend;
-import tools.snapshot.SnapshotBuffer;
+import tools.snapshot.SnapshotHeap;
 import tools.snapshot.deserialization.DeserializationBuffer;
 import tools.snapshot.nodes.AbstractSerializationNode;
 import tools.snapshot.nodes.MessageSerializationNode;
@@ -384,9 +384,9 @@ public final class SClass extends SObjectWithClass {
     return context;
   }
 
-  public long serialize(final Object o, final SnapshotBuffer sb) {
+  public long serialize(final Object o, final SnapshotHeap snapshotHeap) {
     assert instanceClassGroup != null;
-    return instanceClassGroup.serialize(o, sb);
+    return instanceClassGroup.serialize(o, snapshotHeap);
   }
 
   @TruffleBoundary

@@ -29,8 +29,10 @@ import som.vmobjects.SSymbol;
 import tools.concurrency.TracingActors.TracingActor;
 import tools.snapshot.SnapshotBackend;
 import tools.snapshot.SnapshotBuffer;
+import tools.snapshot.SnapshotHeap;
 import tools.snapshot.deserialization.DeserializationBuffer;
 import tools.snapshot.deserialization.FixupInformation;
+import tools.snapshot.deserialization.SnapshotParser;
 
 
 @GenerateNodeFactory
@@ -72,7 +74,7 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
    * Serializes a message and returns a long that can be used to reference to the message
    * within the snapshot.
    */
-  public abstract long execute(EventualMessage em, SnapshotBuffer sb);
+  public abstract long execute(EventualMessage em, SnapshotHeap sh);
 
   // Possible Optimizations:
   // actors receive a limited set of messages
@@ -104,13 +106,14 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
 
       if (obj == null) {
         // TODO cache this nil stuff, maye put the location as constatn in the valuePool
-        long nilLocation = Classes.nilClass.serialize(Nil.nilObject, sb);
+        long nilLocation = Classes.nilClass.serialize(Nil.nilObject, sb.getHeap());
         sb.putLongAt((base + 1) + i * Long.BYTES, nilLocation);
       } else if (obj instanceof SPromise) {
         PromiseSerializationNodes.handleReferencedPromise((SPromise) obj, sb,
             (base + 1) + i * Long.BYTES);
       } else {
-        sb.putLongAt((base + 1) + i * Long.BYTES, serializationNodes[i].execute(obj, sb));
+        sb.putLongAt((base + 1) + i * Long.BYTES,
+            serializationNodes[i].execute(obj, sb.getHeap()));
       }
     }
   }
@@ -127,8 +130,8 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
   }
 
   @Specialization(guards = "dm.getResolver() != null")
-  protected long doDirectMessage(final DirectMessage dm, final SnapshotBuffer sb) {
-    long location = getObjectLocation(dm, sb.getSnapshotVersion());
+  protected long doDirectMessage(final DirectMessage dm, final SnapshotHeap sh) {
+    long location = getObjectLocation(dm, sh.getSnapshotVersion());
     if (location != -1) {
       return location;
     }
@@ -138,8 +141,9 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
 
     int payload =
         COMMONALITY_BYTES + Long.BYTES + 1 + (serializationNodes.length * Long.BYTES);
+    SnapshotBuffer sb = sh.getBufferObject(payload);
     int base = sb.addMessage(payload, dm);
-    long start = base - SnapshotBuffer.CLASS_ID_SIZE;
+    long start = base;
 
     assert dm.getSelector() == selector;
 
@@ -153,8 +157,8 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
   }
 
   @Specialization
-  protected long doDirectMessageNoResolver(final DirectMessage dm, final SnapshotBuffer sb) {
-    long location = getObjectLocation(dm, sb.getSnapshotVersion());
+  protected long doDirectMessageNoResolver(final DirectMessage dm, final SnapshotHeap sh) {
+    long location = getObjectLocation(dm, sh.getSnapshotVersion());
     if (location != -1) {
       return location;
     }
@@ -163,8 +167,9 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
 
     int payload =
         COMMONALITY_BYTES + Long.BYTES + 1 + (serializationNodes.length * Long.BYTES);
+    SnapshotBuffer sb = sh.getBufferObject(payload);
     int base = sb.addMessage(payload, dm);
-    long start = base - SnapshotBuffer.CLASS_ID_SIZE;
+    long start = base;
 
     assert dm.getSelector() == selector;
 
@@ -176,8 +181,8 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
   }
 
   @Specialization(guards = "dm.getResolver() != null")
-  protected long doCallbackMessage(final PromiseCallbackMessage dm, final SnapshotBuffer sb) {
-    long location = getObjectLocation(dm, sb.getSnapshotVersion());
+  protected long doCallbackMessage(final PromiseCallbackMessage dm, final SnapshotHeap sh) {
+    long location = getObjectLocation(dm, sh.getSnapshotVersion());
     if (location != -1) {
       return location;
     }
@@ -188,8 +193,9 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
 
     int payload = COMMONALITY_BYTES + Long.BYTES + Long.BYTES + 1
         + (serializationNodes.length * Long.BYTES);
+    SnapshotBuffer sb = sh.getBufferObject(payload);
     int base = sb.addMessage(payload, dm);
-    long start = base - SnapshotBuffer.CLASS_ID_SIZE;
+    long start = base;
 
     assert dm.getSelector() == selector;
 
@@ -206,8 +212,8 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
 
   @Specialization
   protected long doCallbackMessageNoResolver(final PromiseCallbackMessage dm,
-      final SnapshotBuffer sb) {
-    long location = getObjectLocation(dm, sb.getSnapshotVersion());
+      final SnapshotHeap sh) {
+    long location = getObjectLocation(dm, sh.getSnapshotVersion());
     if (location != -1) {
       return location;
     }
@@ -217,8 +223,9 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
 
     int payload =
         COMMONALITY_BYTES + Long.BYTES + 1 + (serializationNodes.length * Long.BYTES);
+    SnapshotBuffer sb = sh.getBufferObject(payload);
     int base = sb.addMessage(payload, dm);
-    long start = base - SnapshotBuffer.CLASS_ID_SIZE;
+    long start = base;
 
     assert dm.getSelector() == selector;
 
@@ -235,12 +242,12 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
       final long start) {
     doArguments(args, base, sb);
 
-    return sb.calculateReference(start);
+    return sb.calculateReferenceB(start);
   }
 
   @Specialization(guards = {"dm.isDelivered()", "dm.getResolver() != null"})
-  protected long doPromiseMessage(final PromiseSendMessage dm, final SnapshotBuffer sb) {
-    long location = getObjectLocation(dm, sb.getSnapshotVersion());
+  protected long doPromiseMessage(final PromiseSendMessage dm, final SnapshotHeap sh) {
+    long location = getObjectLocation(dm, sh.getSnapshotVersion());
     if (location != -1) {
       return location;
     }
@@ -252,8 +259,9 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
 
     int payload = COMMONALITY_BYTES + Long.BYTES + Long.BYTES + Integer.BYTES + 1
         + (serializationNodes.length * Long.BYTES);
+    SnapshotBuffer sb = sh.getBufferObject(payload);
     int base = sb.addMessage(payload, dm);
-    long start = base - SnapshotBuffer.CLASS_ID_SIZE;
+    long start = base;
 
     assert dm.getSelector() == selector;
 
@@ -272,8 +280,8 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
 
   @Specialization(guards = "dm.isDelivered()")
   protected long doPromiseMessageNoResolver(final PromiseSendMessage dm,
-      final SnapshotBuffer sb) {
-    long location = getObjectLocation(dm, sb.getSnapshotVersion());
+      final SnapshotHeap sh) {
+    long location = getObjectLocation(dm, sh.getSnapshotVersion());
     if (location != -1) {
       return location;
     }
@@ -284,8 +292,9 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
 
     int payload = COMMONALITY_BYTES + Long.BYTES + Integer.BYTES + 1
         + (serializationNodes.length * Long.BYTES);
+    SnapshotBuffer sb = sh.getBufferObject(payload);
     int base = sb.addMessage(payload, dm);
-    long start = base - SnapshotBuffer.CLASS_ID_SIZE;
+    long start = base;
 
     assert dm.getSelector() == selector;
 
@@ -301,8 +310,8 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
 
   @Specialization(guards = {"!dm.isDelivered()", "dm.getResolver() != null"})
   protected long doUndeliveredPromiseMessage(final PromiseSendMessage dm,
-      final SnapshotBuffer sb) {
-    long location = getObjectLocation(dm, sb.getSnapshotVersion());
+      final SnapshotHeap sh) {
+    long location = getObjectLocation(dm, sh.getSnapshotVersion());
     if (location != -1) {
       return location;
     }
@@ -312,8 +321,9 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
 
     int payload = COMMONALITY_BYTES + Long.BYTES + Long.BYTES + 1
         + (serializationNodes.length * Long.BYTES);
+    SnapshotBuffer sb = sh.getBufferObject(payload);
     int base = sb.addMessage(payload, dm);
-    long start = base - SnapshotBuffer.CLASS_ID_SIZE;
+    long start = base;
 
     assert dm.getSelector() == selector;
 
@@ -330,8 +340,8 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
 
   @Specialization(guards = "!dm.isDelivered()")
   protected long doUndeliveredPromiseMessageNoResolver(final PromiseSendMessage dm,
-      final SnapshotBuffer sb) {
-    long location = getObjectLocation(dm, sb.getSnapshotVersion());
+      final SnapshotHeap sh) {
+    long location = getObjectLocation(dm, sh.getSnapshotVersion());
     if (location != -1) {
       return location;
     }
@@ -340,8 +350,9 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
 
     int payload =
         COMMONALITY_BYTES + Long.BYTES + 1 + (serializationNodes.length * Long.BYTES);
+    SnapshotBuffer sb = sh.getBufferObject(payload);
     int base = sb.addMessage(payload, dm);
-    long start = base - SnapshotBuffer.CLASS_ID_SIZE;
+    long start = base;
 
     assert dm.getSelector() == selector;
 
@@ -356,7 +367,7 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
 
   @TruffleBoundary
   private long serializeResolver(final SResolver resolver, final SnapshotBuffer sb) {
-    return SResolver.getResolverClass().serialize(resolver, sb);
+    return SResolver.getResolverClass().serialize(resolver, sb.getHeap());
   }
 
   @Override
@@ -466,7 +477,8 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
       args[0] = SPromise.createPromise(sender, false, false, null);
     } else {
       args[0] = prom;
-      if (!prom.isCompleted()) {
+      // THIS MUST HAPPEN ONLY IF THE MESSAGE WILL BE NEEDED IN A MAILBOX
+      if (!prom.isCompleted() && SnapshotParser.isTracedMessage(bb.getLastRef())) {
         prom.resolveFromSnapshot(value, Resolution.SUCCESSFUL, finalSender, true);
         ((STracingPromise) prom).setResolvingActorForSnapshot(finalSender.getActorId());
       }
@@ -478,8 +490,14 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
     if (pmf != null) {
       pmf.setMessage(psm);
     }
-    psm.resolve(value, SnapshotBackend.getCurrentActor(),
-        finalSender);
+
+    // THIS MUST HAPPEN ONLY IF THE MESSAGE WILL BE NEEDED IN A MAILBOX
+    if (SnapshotParser.isTracedMessage(bb.getLastRef())) {
+      psm.resolve(value, SnapshotBackend.getCurrentActor(),
+          finalSender);
+    } else {
+      assert psm.getArgs()[0] == psm.getPromise();
+    }
 
     return psm;
   }

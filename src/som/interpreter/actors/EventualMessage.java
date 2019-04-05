@@ -21,7 +21,7 @@ import tools.concurrency.TracingActivityThread;
 import tools.parser.KomposTraceParser;
 import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
 import tools.snapshot.SnapshotBackend;
-import tools.snapshot.SnapshotBuffer;
+import tools.snapshot.SnapshotHeap;
 
 
 public abstract class EventualMessage extends SAbstractObject {
@@ -95,6 +95,18 @@ public abstract class EventualMessage extends SAbstractObject {
     return messageId;
   }
 
+  public final byte getSnapshotPhase() {
+    return (byte) (messageId & 0xFF);
+  }
+
+  public final byte getOriginalSnapshotPhase() {
+    return (byte) ((messageId >> 8) & 0xFF);
+  }
+
+  public final void updateSnapshotPhase(final byte newPhase) {
+    messageId = (messageId & 0xFF00) | newPhase;
+  }
+
   public abstract SSymbol getSelector();
 
   public SourceSection getTargetSourceSection() {
@@ -136,9 +148,9 @@ public abstract class EventualMessage extends SAbstractObject {
   // TODO: can we establish a structure for this? at the moment, we have an
   // indirection here, which leads us to a serializer that's not compilation
   // final, I think
-  public long forceSerialize(final SnapshotBuffer sb) {
+  public long forceSerialize(final SnapshotHeap buffer) {
     ReceivedRootNode rm = (ReceivedRootNode) this.onReceive.getRootNode();
-    return rm.getSerializer().execute(this, sb);
+    return rm.getSerializer().execute(this, buffer);
   }
 
   /**
@@ -163,7 +175,8 @@ public abstract class EventualMessage extends SAbstractObject {
       this.target = target;
 
       if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.REPLAY) {
-        this.messageId = ActorProcessingThread.currentThread().getSnapshotId();
+        this.messageId = (ActorProcessingThread.currentThread().getSnapshotId() << 8)
+            | ActorProcessingThread.currentThread().getSnapshotId();
       }
 
       assert target != null;
@@ -184,7 +197,8 @@ public abstract class EventualMessage extends SAbstractObject {
       this.target = target;
 
       if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.REPLAY) {
-        this.messageId = SnapshotBackend.getSnapshotVersion();
+        this.messageId = (SnapshotBackend.getSnapshotVersion() << 8)
+            | SnapshotBackend.getSnapshotVersion();
       }
 
       assert target != null;
@@ -289,7 +303,8 @@ public abstract class EventualMessage extends SAbstractObject {
       this.originalSender = originalSender;
 
       if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.REPLAY) {
-        this.messageId = ActorProcessingThread.currentThread().getSnapshotId();
+        this.messageId = (ActorProcessingThread.currentThread().getSnapshotId() << 8)
+            | ActorProcessingThread.currentThread().getSnapshotId();
       }
     }
 
@@ -337,7 +352,8 @@ public abstract class EventualMessage extends SAbstractObject {
       assert (args[0] instanceof SPromise);
       this.originalTarget = (SPromise) args[0];
       if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.REPLAY) {
-        this.messageId = ActorProcessingThread.currentThread().getSnapshotId();
+        this.messageId = (ActorProcessingThread.currentThread().getSnapshotId() << 8)
+            | ActorProcessingThread.currentThread().getSnapshotId();
       }
     }
 
@@ -357,8 +373,9 @@ public abstract class EventualMessage extends SAbstractObject {
       this.target = finalTarget; // for sends to far references, we need to adjust the target
       this.finalSender = sendingActor;
       if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.REPLAY) {
-        this.messageId =
-            Math.max(ActorProcessingThread.currentThread().getSnapshotId(), this.messageId);
+        this.updateSnapshotPhase(
+            (byte) Math.max(ActorProcessingThread.currentThread().getSnapshotId(),
+                (byte) this.messageId));
       }
     }
 
@@ -432,7 +449,8 @@ public abstract class EventualMessage extends SAbstractObject {
           triggerMessageReceiverBreakpoint, triggerPromiseResolverBreakpoint);
       this.promise = promiseRegisteredOn;
       if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.REPLAY) {
-        this.messageId = ActorProcessingThread.currentThread().getSnapshotId();
+        this.messageId = (ActorProcessingThread.currentThread().getSnapshotId() << 8)
+            | ActorProcessingThread.currentThread().getSnapshotId();
       }
     }
 
@@ -450,7 +468,7 @@ public abstract class EventualMessage extends SAbstractObject {
     private void setPromiseValue(final Object value, final Actor resolvingActor) {
       args[1] = originalSender.wrapForUse(value, resolvingActor, null);
       if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.REPLAY) {
-        this.messageId = ActorProcessingThread.currentThread().getSnapshotId();
+        this.updateSnapshotPhase(ActorProcessingThread.currentThread().getSnapshotId());
       }
     }
 

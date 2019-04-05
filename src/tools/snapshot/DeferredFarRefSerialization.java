@@ -25,6 +25,7 @@ public class DeferredFarRefSerialization {
     if (referer == null || !(Thread.currentThread() instanceof TracingActivityThread)) {
       return true;
     }
-    return referer.snapshotVersion == TracingActivityThread.currentThread().getSnapshotId();
+    return referer.parent.getSnapshotVersion() == TracingActivityThread.currentThread()
+                                                                       .getSnapshotId();
   }
 }

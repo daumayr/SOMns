@@ -1647,6 +1647,7 @@ class Savina usingPlatform: platform andHarness: harness = Value (
       | r |
       r:: result round.
 
+      numTransactions =   10 ifTrue: [ ^ r = 5660    ].
       numTransactions =   100 ifTrue: [ ^ r = 52558    ].
       numTransactions =   1000 ifTrue: [ ^ r = 516215    ].
       numTransactions =  10000 ifTrue: [ ^ r = 4975454   ].
