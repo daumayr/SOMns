@@ -80,7 +80,7 @@ class Savina usingPlatform: platform andHarness: harness = Value (
 
       public ping = (
         pong <-: ping: self.
-        pingsLeft < (NumPings * 0.95)
+        pingsLeft < (NumPings * 0.99)
           ifTrue: [self.error: pingsLeft].
         pingsLeft:: pingsLeft - 1.
       )

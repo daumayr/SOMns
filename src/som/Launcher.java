@@ -55,7 +55,6 @@ public final class Launcher {
     }
 
     if(VmSettings.ASSISTED_DEBUGGING) {
-      TracingBackend.waitForTrace();
       KomposTraceParser tp = new KomposTraceParser();
       tp.createStackTraceFile(VmSettings.TRACE_FILE);
     }

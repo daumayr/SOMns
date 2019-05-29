@@ -218,25 +218,28 @@ public class KomposTraceParser {
 
     public void createStackTraceFile(String path) {
         File errorMsgFile = new File(path + "_errorMsgId.trace");
-        long errorMsgId = -1;
 
-        try (Scanner sc = new Scanner(errorMsgFile)){
-            errorMsgId = sc.nextLong();
-        } catch (FileNotFoundException e) {
-            e.printStackTrace();
-        }
+        if(errorMsgFile.exists() && !errorMsgFile.isDirectory()) {
+            long errorMsgId = -1;
 
-        if(errorMsgId != -1) {
-            parse(path + ".trace");
-            List<MsgObj> stackTrace = getStrackTraceOfMessage(errorMsgId);
-            File stackTraceFile = new File(path + "_errorStack.trace");
-
-            try(BufferedWriter writer = new BufferedWriter(new FileWriter(stackTraceFile))) {
-                for (MsgObj msg:stackTrace) {
-                    writer.write(String.valueOf(msg.messageId) + "\n");
-                }
-            } catch (IOException e) {
+            try (Scanner sc = new Scanner(errorMsgFile)){
+                errorMsgId = sc.nextLong();
+            } catch (FileNotFoundException e) {
                 e.printStackTrace();
+            }
+
+            if(errorMsgId != -1) {
+                parse(path + ".trace");
+                List<MsgObj> stackTrace = getStrackTraceOfMessage(errorMsgId);
+                File stackTraceFile = new File(path + "_errorStack.trace");
+
+                try(BufferedWriter writer = new BufferedWriter(new FileWriter(stackTraceFile))) {
+                    for (MsgObj msg:stackTrace) {
+                        writer.write(String.valueOf(msg.messageId) + "\n");
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
             }
         }
     }
