@@ -11,6 +11,7 @@ import som.interpreter.SomLanguage;
 import som.interpreter.objectstorage.StorageAccessor;
 import som.vm.VmSettings;
 import tools.concurrency.TracingActors.ReplayActor;
+import tools.parser.KomposTraceParser;
 import tools.concurrency.TracingBackend;
 import tools.snapshot.SnapshotBackend;
 
@@ -51,6 +52,12 @@ public final class Launcher {
 
     if (VmSettings.MEMORY_TRACING) {
       TracingBackend.reportPeakMemoryUsage();
+    }
+
+    if(VmSettings.ASSISTED_DEBUGGING) {
+      TracingBackend.waitForTrace();
+      KomposTraceParser tp = new KomposTraceParser();
+      tp.createStackTraceFile(VmSettings.TRACE_FILE);
     }
 
     // TODO: TruffleException has a way to communicate exit code

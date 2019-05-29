@@ -38,6 +38,7 @@ import som.vmobjects.SArray;
 import som.vmobjects.SArray.SImmutableArray;
 import som.vmobjects.SSymbol;
 import tools.debugger.FrontendConnector;
+import tools.parser.KomposTraceParser;
 import tools.replay.StringWrapper;
 import tools.replay.TwoDArrayWrapper;
 import tools.replay.actors.ActorExecutionTrace;
@@ -589,6 +590,7 @@ public class TracingBackend {
           } catch (FileNotFoundException e) {
             throw new RuntimeException(e);
           }
+
         }
       } catch (IOException e) {
         throw new RuntimeException(e);

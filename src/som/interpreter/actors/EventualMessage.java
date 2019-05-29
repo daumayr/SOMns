@@ -1,6 +1,10 @@
 package som.interpreter.actors;
 
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.util.Arrays;
+import java.util.Scanner;
 
 import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
 import com.oracle.truffle.api.RootCallTarget;
@@ -54,6 +58,11 @@ public abstract class EventualMessage {
     this.haltOnResolver = haltOnResolver;
     if (VmSettings.KOMPOS_TRACING) {
       this.messageId = TracingActivityThread.newEntityId();
+      if(VmSettings.ASSISTED_DEBUGGING) {
+        if(som.compiler.Parser.isMessageInErrorStackTrace(this.messageId)) {
+          this.haltOnReceive = true;
+        }
+      }
     } else {
       this.messageId = 0;
     }

@@ -69,7 +69,6 @@ class Kernel vmMirror: vmMirror = Object <: Value (
     (* Debugging *)
     public print    = ( self asString print )
     public println  = ( vmMirror printNewline: self asString )
-    public writeMsg = ( vmMirror writeErrorMsg: nil)
     public halt     = ( vmMirror halt: self )
     public asString = ( ^ 'instance of ' + (vmMirror objClassName: self) )
   )

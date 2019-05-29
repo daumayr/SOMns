@@ -68,10 +68,13 @@ import static som.interpreter.SNodeFactory.createMessageSend;
 import static som.interpreter.SNodeFactory.createSequence;
 import static som.vm.Symbols.symbolFor;
 
+import java.io.File;
+import java.io.FileNotFoundException;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Scanner;
 import java.util.Set;
 
 import com.oracle.truffle.api.instrumentation.Tag;
@@ -165,6 +168,32 @@ public class Parser {
       }
     }
     return false;
+  }
+
+  private static Set<Long> errorStrackTrace;
+
+  private static void getErrorStackTrace() {
+    errorStrackTrace = new HashSet<Long>();
+
+    File f = new File(VmSettings.TRACE_FILE + "_errorStack.trace");
+    try(Scanner sc = new Scanner(f)) {
+      long msgId = -1;
+      boolean found = false;
+      while(sc.hasNextLong() && !found) {
+        msgId = sc.nextLong();
+        errorStrackTrace.add(msgId);
+      }
+    }catch(FileNotFoundException e) {
+      
+    }
+  }
+
+  public static boolean isMessageInErrorStackTrace(long msgId) {
+    if(errorStrackTrace == null) {
+      getErrorStackTrace();
+    }
+
+    return errorStrackTrace.contains(msgId);
   }
 
   @Override

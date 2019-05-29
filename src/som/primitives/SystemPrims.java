@@ -228,7 +228,7 @@ public final class SystemPrims {
         EventualMessage errorMsg = EventualMessage.getCurrentExecutingMessage();
         long msgId = errorMsg.getMessageId();
 
-        File f = new File(VmSettings.TRACE_FILE + "_errorMsgId" + ".trace");
+        File f = new File(VmSettings.TRACE_FILE + "_errorMsgId.trace");
         try(
           BufferedWriter writer = new BufferedWriter(new FileWriter(f))) {
           writer.write(String.valueOf(msgId));
