@@ -18,6 +18,7 @@ public class VmSettings implements Settings {
   public static final boolean DNU_PRINT_STACK_TRACE;
   public static final boolean REPLAY;
   public static final boolean KOMPOS_TRACING;
+  public static final boolean ASSISTED_DEBUGGING;
   public static final boolean TRACE_SMALL_IDS;
   public static final boolean SNAPSHOTS_ENABLED;
   public static final boolean TRACK_SNAPSHOT_ENTITIES;
@@ -56,6 +57,7 @@ public class VmSettings implements Settings {
     MEMORY_TRACING = getBool("som.memoryTracing", false);
     REPLAY = getBool("som.replay", false);
     KOMPOS_TRACING = TRUFFLE_DEBUGGER_ENABLED; // REPLAY;
+    ASSISTED_DEBUGGING = getBool("som.assistedDebugging", true) && KOMPOS_TRACING;
     DISABLE_TRACE_FILE = getBool("som.disableTraceFile", false) || REPLAY;
     TRACE_SMALL_IDS = getBool("som.smallIds", false);
 
