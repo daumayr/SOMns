@@ -56,9 +56,11 @@ public class VmSettings implements Settings {
         System.getProperty("som.traceFile", System.getProperty("user.dir") + "/traces/trace");
     MEMORY_TRACING = getBool("som.memoryTracing", false);
     REPLAY = getBool("som.replay", false);
-    KOMPOS_TRACING = TRUFFLE_DEBUGGER_ENABLED; // REPLAY;
+
+    KOMPOS_TRACING = getBool("som.komposTracing", false) || TRUFFLE_DEBUGGER_ENABLED; // REPLAY;
     ASSISTED_DEBUGGING = getBool("som.assistedDebugging", false) && KOMPOS_TRACING;
-    DISABLE_TRACE_FILE = getBool("som.disableTraceFile", false) || REPLAY;
+    DISABLE_TRACE_FILE = getBool("som.disableTraceFile", false) || (REPLAY && !KOMPOS_TRACING);
+    
     TRACE_SMALL_IDS = getBool("som.smallIds", false);
 
     ACTOR_TRACING = getBool("som.actorTracing", false);
