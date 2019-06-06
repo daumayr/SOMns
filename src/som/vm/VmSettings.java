@@ -57,7 +57,7 @@ public class VmSettings implements Settings {
     MEMORY_TRACING = getBool("som.memoryTracing", false);
     REPLAY = getBool("som.replay", false);
     KOMPOS_TRACING = TRUFFLE_DEBUGGER_ENABLED; // REPLAY;
-    ASSISTED_DEBUGGING = getBool("som.assistedDebugging", true) && KOMPOS_TRACING;
+    ASSISTED_DEBUGGING = getBool("som.assistedDebugging", false) && KOMPOS_TRACING;
     DISABLE_TRACE_FILE = getBool("som.disableTraceFile", false) || REPLAY;
     TRACE_SMALL_IDS = getBool("som.smallIds", false);
 

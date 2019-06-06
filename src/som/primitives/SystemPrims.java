@@ -223,7 +223,7 @@ public final class SystemPrims {
   public abstract static class WriteErrorMsgPrim extends UnaryExpressionNode {
     @Specialization
     public final Object doSObject(final Object receiver) {
-      if(VmSettings.KOMPOS_TRACING && VmSettings.ASSISTED_DEBUGGING) {
+      if(VmSettings.KOMPOS_TRACING) {
         
         EventualMessage errorMsg = EventualMessage.getCurrentExecutingMessage();
         long msgId = errorMsg.getMessageId();
