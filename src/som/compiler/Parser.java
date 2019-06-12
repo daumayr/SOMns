@@ -170,32 +170,6 @@ public class Parser {
     return false;
   }
 
-  private static Set<Long> errorStrackTrace;
-
-  private static void getErrorStackTrace() {
-    errorStrackTrace = new HashSet<Long>();
-
-    File f = new File(VmSettings.TRACE_FILE + "_errorStack.trace");
-    try(Scanner sc = new Scanner(f)) {
-      long msgId = -1;
-      boolean found = false;
-      while(sc.hasNextLong() && !found) {
-        msgId = sc.nextLong();
-        errorStrackTrace.add(msgId);
-      }
-    }catch(FileNotFoundException e) {
-      
-    }
-  }
-
-  public static boolean isMessageInErrorStackTrace(long msgId) {
-    if(errorStrackTrace == null) {
-      getErrorStackTrace();
-    }
-
-    return errorStrackTrace.contains(msgId);
-  }
-
   @Override
   public String toString() {
     return "Parser(" + source.getName() + ", " + this.getCoordinate().toString() + ")";

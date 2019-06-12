@@ -18,6 +18,7 @@ import som.vm.VmSettings;
 import som.vmobjects.SBlock;
 import som.vmobjects.SSymbol;
 import tools.concurrency.TracingActivityThread;
+import tools.parser.KomposTraceParser;
 import tools.snapshot.SnapshotBackend;
 import tools.snapshot.SnapshotBuffer;
 
@@ -59,7 +60,7 @@ public abstract class EventualMessage {
     if (VmSettings.KOMPOS_TRACING) {
       this.messageId = TracingActivityThread.newEntityId();
       if(VmSettings.ASSISTED_DEBUGGING) {
-        if(som.compiler.Parser.isMessageInErrorStackTrace(this.messageId)) {
+        if(KomposTraceParser.isMessageInErrorStackTrace(this.messageId) || this.messageId == 0){
           this.haltOnReceive = true;
         }
       }

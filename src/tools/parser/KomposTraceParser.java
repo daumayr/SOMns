@@ -13,9 +13,12 @@ import java.nio.channels.FileChannel;
 import java.util.*;
 import java.util.List;
 
+import som.vm.VmSettings;
 import tools.debugger.entities.Marker;
 
 public class KomposTraceParser {
+
+    private static Set<Long> errorStrackTrace;
 
     private static final int SOURCE_SECTION_SIZE = 8;
 
@@ -49,6 +52,35 @@ public class KomposTraceParser {
     private final HashMap<Long, MsgObj> messages = new HashMap<Long, MsgObj>();
 
     private final List<Long> toResolvePromises = new ArrayList<Long>();
+
+    private static void getErrorStackTrace() {
+        errorStrackTrace = new HashSet<Long>();
+    
+        File f = new File(VmSettings.TRACE_FILE + "_errorStack.trace");
+        try(Scanner sc = new Scanner(f)) {
+          long msgId = -1;
+          int msgCount = 0;
+          while(sc.hasNextLong()) {
+            if(VmSettings.ASSISTED_DEBUGGING_BREAKPOINTS != -1 && msgCount >= VmSettings.ASSISTED_DEBUGGING_BREAKPOINTS ) {
+                break;
+            }
+
+            msgId = sc.nextLong();
+            errorStrackTrace.add(msgId);
+            msgCount++;
+          }
+        }catch(FileNotFoundException e) {
+          e.printStackTrace();
+        }
+      }
+    
+      public static boolean isMessageInErrorStackTrace(long msgId) {
+        if(errorStrackTrace == null) {
+          getErrorStackTrace();
+        }
+    
+        return errorStrackTrace.contains(msgId);
+      }
 
     public KomposTraceParser() {
         byteBuffer.order(ByteOrder.LITTLE_ENDIAN);
@@ -203,12 +235,19 @@ public class KomposTraceParser {
         MsgObj message = messages.get(messageId);
         stackTrace.add(message);
 
+        long oldParentId = -1;
+
         while(message.parentMsgId != -1) {
             if (messages.containsKey(message.parentMsgId)) {
                 message = messages.get(message.parentMsgId);
                 stackTrace.add(message);
+                if(oldParentId == message.parentMsgId) {
+                    break; //Avoid loops
+                } else {
+                    oldParentId = message.parentMsgId;
+                }
             } else {
-                System.out.println("Message not found?!");
+                System.out.println("Message not found!");
                 break;
             }
         }
@@ -229,7 +268,7 @@ public class KomposTraceParser {
             }
 
             if(errorMsgId != -1) {
-                parse(path + ".trace");
+                parse(path + ".ktrace");
                 List<MsgObj> stackTrace = getStrackTraceOfMessage(errorMsgId);
                 File stackTraceFile = new File(path + "_errorStack.trace");
 

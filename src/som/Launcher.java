@@ -54,7 +54,7 @@ public final class Launcher {
       TracingBackend.reportPeakMemoryUsage();
     }
 
-    if(VmSettings.ASSISTED_DEBUGGING) {
+    if(VmSettings.KOMPOS_TRACING) {
       KomposTraceParser tp = new KomposTraceParser();
       tp.createStackTraceFile(VmSettings.TRACE_FILE);
     }
