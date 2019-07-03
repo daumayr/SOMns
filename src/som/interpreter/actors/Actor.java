@@ -17,7 +17,9 @@ import som.VM;
 import som.interpreter.SomLanguage;
 import som.interpreter.actors.EventualMessage.PromiseMessage;
 import som.interpreter.objectstorage.ObjectTransitionSafepoint;
+import som.primitives.ObjectPrims.ClassPrim;
 import som.primitives.ObjectPrims.IsValue;
+import som.primitives.ObjectPrimsFactory.ClassPrimFactory;
 import som.vm.Activity;
 import som.vm.VmSettings;
 import som.vmobjects.SAbstractObject;
@@ -36,6 +38,8 @@ import tools.replay.actors.ActorExecutionTrace;
 import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
 import tools.replay.nodes.TraceContextNode;
 import tools.replay.nodes.TraceContextNodeGen;
+import tools.snapshot.SnapshotBackend;
+import tools.snapshot.SnapshotHeap;
 import tools.snapshot.deserialization.SnapshotParser;
 
 
@@ -207,6 +211,13 @@ public class Actor implements Activity {
     }
   }
 
+  public synchronized void executeForDeferred(final ForkJoinPool actorPool) {
+    if (!isExecuting) {
+      isExecuting = true;
+      execute(actorPool);
+    }
+  }
+
   private void doSend(final EventualMessage msg,
       final ForkJoinPool actorPool) {
     assert msg.getTarget() == this;
@@ -234,9 +245,13 @@ public class Actor implements Activity {
   public static final class ExecutorRootNode extends RootNode {
 
     @Child protected RecordOneEvent recordPromiseChaining;
+    @Child protected ClassPrim classPrim;
 
     private ExecutorRootNode(final SomLanguage language) {
       super(language);
+      if (VmSettings.SNAPSHOTS_ENABLED) {
+        classPrim = ClassPrimFactory.create(null);
+      }
 
       if (VmSettings.UNIFORM_TRACING) {
         this.recordPromiseChaining = new RecordOneEvent(TraceRecord.PROMISE_CHAINED);
@@ -295,10 +310,33 @@ public class Actor implements Activity {
         KomposTrace.currentActivity(actor);
       }
 
+      if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.SNAPSHOT_REPLAY) {
+        SnapshotHeap sh = t.getSnapshotHeap();
+        ((TracingActor) actor).handleObjectsReferencedFromFarRefs(sh,
+            ((ExecutorRootNode) executorRoot.getRootNode()).classPrim);
+        if (((TracingActor) actor).isReportDeferredDone()) {
+          SnapshotBackend.doneWithDeferred((TracingActor) actor);
+        }
+      }
+
       try {
         while (getCurrentMessagesOrCompleteExecution()) {
           processCurrentMessages(t, dbg);
+
+          // check if a bubble came up
+          if (SnapshotBackend.bubbleExecuted
+              && t.bubbleVersion != SnapshotBackend.getSnapshotVersion()) {
+            t.bubbleVersion = SnapshotBackend.getSnapshotVersion();
+            SnapshotBackend.threadClean();
+          }
         }
+      } catch (ThreadDeath td) {
+        synchronized (actor) {
+          if (actor.isExecuting) {
+            actor.isExecuting = false;
+          }
+        }
+        throw td;
       } finally {
         ObjectTransitionSafepoint.INSTANCE.unregister();
       }
@@ -395,6 +433,7 @@ public class Actor implements Activity {
     public EventualMessage currentMessage;
 
     protected Actor currentlyExecutingActor;
+    public byte     bubbleVersion;
 
     protected ActorProcessingThread(final ForkJoinPool pool, final VM vm) {
       super(pool, vm);

@@ -75,7 +75,8 @@ public final class SnapshotParser {
    */
   private void parseMetaData() {
     ByteBuffer b = ByteBuffer.allocate(VmSettings.BUFFER_SIZE).order(ByteOrder.LITTLE_ENDIAN);
-    String fileName = VmSettings.TRACE_FILE + ".1.snap";
+    String fileName =
+        VmSettings.TRACE_FILE + "." + VmSettings.SNAPSHOT_REPLAY_VERSION + ".snap";
     File traceFile = new File(fileName);
     try (FileInputStream fis = new FileInputStream(traceFile);
         FileChannel channel = fis.getChannel()) {
@@ -111,6 +112,14 @@ public final class SnapshotParser {
         ensureRemaining(Long.BYTES, b, channel);
         long resolver = b.getLong();
         lostResolutions.add(resolver);
+      }
+
+      long numMsgs = b.getLong();
+      ArrayList<Long> lostMessages = new ArrayList<>();
+      for (int i = 0; i < numMsgs; i++) {
+        ensureRemaining(Long.BYTES, b, channel);
+        long entryLoc = b.getLong();
+        lostMessages.add(entryLoc);
       }
 
       ensureRemaining(Long.BYTES * 2, b, channel);
@@ -171,6 +180,29 @@ public final class SnapshotParser {
 
           currentActor.sendSnapshotMessage(em);
           ml = locations.poll();
+        }
+      }
+
+      for (long entry : lostMessages) {
+        db.position(entry);
+        long messageLoc = db.getLong();
+        long promiseLoc = db.getLong();
+
+        // Output.println("found: " + messageLoc);
+        Object o = db.deserializeWithoutContext(messageLoc);
+
+        STracingPromise prom = (STracingPromise) db.deserializeWithoutContext(promiseLoc);
+        // STracingPromise prom = (STracingPromise) pm.getPromise();
+
+        if (o instanceof PromiseMessage) {
+          PromiseMessage pm = (PromiseMessage) o;
+          if (prom.isCompleted()) {
+            prom.unresolveFromSnapshot(Resolution.UNRESOLVED);
+          }
+          prom.registerWhenResolvedUnsynced(pm);
+        } else {
+          STracingPromise chained = (STracingPromise) o;
+          prom.addChainedPromise(chained);
         }
       }
 
@@ -261,6 +293,7 @@ public final class SnapshotParser {
         result = (SObjectWithClass) parser.db.deserialize(reference);
       } else if (DeserializationBuffer.needsFixup(o)) {
         result = null;
+        parser.db.installFixup(new EnclosingObjectFixup(identity), reference);
         // OuterFixup!!
       } else {
         result = (SObjectWithClass) o;
@@ -321,5 +354,21 @@ public final class SnapshotParser {
     public int compareTo(final MessageLocation o) {
       return Integer.compare(msgNo, o.msgNo);
     }
+  }
+
+  public static class EnclosingObjectFixup extends FixupInformation {
+
+    int classId;
+
+    public EnclosingObjectFixup(final int classId) {
+      this.classId = classId;
+    }
+
+    @Override
+    public void fixUp(final Object o) {
+      assert o instanceof SObjectWithClass;
+      SnapshotBackend.finishCreateSClass(classId, (SObjectWithClass) o);
+    }
+
   }
 }

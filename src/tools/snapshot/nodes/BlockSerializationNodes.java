@@ -27,118 +27,124 @@ import tools.snapshot.SnapshotBuffer;
 import tools.snapshot.SnapshotHeap;
 import tools.snapshot.deserialization.DeserializationBuffer;
 import tools.snapshot.deserialization.FixupInformation;
+import tools.snapshot.nodes.BlockSerializationNodes.BlockSerializationNode.BlockArgumentFixup;
+import tools.snapshot.nodes.BlockSerializationNodes.BlockSerializationNode.FrameSlotFixup;
 
 
-@GenerateNodeFactory
-public abstract class BlockSerializationNode extends AbstractSerializationNode {
+public abstract class BlockSerializationNodes {
 
-  private static final int SINVOKABLE_SIZE = Short.BYTES;
+  @GenerateNodeFactory
+  public static abstract class BlockSerializationNode extends AbstractSerializationNode {
 
-  // TODO specialize on different blocks
-  @Specialization
-  public long serialize(final SBlock block, final SnapshotHeap sh) {
-    long location = getObjectLocation(block, sh.getSnapshotVersion());
-    if (location != -1) {
-      return location;
-    }
+    private static final int SINVOKABLE_SIZE = Short.BYTES;
 
-    MaterializedFrame mf = block.getContextOrNull();
+    // TODO specialize on different blocks
+    @Specialization
+    public long serialize(final SBlock block, final SnapshotHeap sh) {
+      long location = getObjectLocation(block, sh.getSnapshotVersion());
+      if (location != -1) {
+        return location;
+      }
 
-    if (mf == null) {
-      SnapshotBuffer sb = sh.getBufferObject(SINVOKABLE_SIZE + 1);
-      int start = sb.addObject(block, Classes.blockClass, SINVOKABLE_SIZE + 1);
-      int base = start;
-      SInvokable meth = block.getMethod();
-      sb.putShortAt(base, meth.getIdentifier().getSymbolId());
-      sb.putByteAt(base + 2, (byte) 0);
-      return sb.calculateReferenceB(start);
-    } else {
-      SnapshotBuffer sb = sh.getBufferObject(SINVOKABLE_SIZE + 1 + Long.BYTES);
-      int start = sb.addObject(block, Classes.blockClass, SINVOKABLE_SIZE + 1 + Long.BYTES);
-      int base = start;
-      SInvokable meth = block.getMethod();
-      sb.putShortAt(base, meth.getIdentifier().getSymbolId());
-      sb.putByteAt(base + 2, (byte) 1);
+      MaterializedFrame mf = block.getContextOrNull();
 
-      long framelocation = meth.getFrameSerializer().execute(block, sh);
-
-      sb.putLongAt(base + 3, framelocation);
-      return sb.calculateReferenceB(start);
-    }
-  }
-
-  @Override
-  public Object deserialize(final DeserializationBuffer bb) {
-    short sinv = bb.getShort();
-    byte framePresent = bb.get();
-
-    SInvokable invokable = SnapshotBackend.lookupInvokable(sinv);
-    assert invokable != null : "Invokable not found";
-
-    MaterializedFrame frame = null;
-    if (framePresent == 1) {
-      Object result = bb.getMaterializedFrame(invokable);
-      if (DeserializationBuffer.needsFixup(result)) {
-        SBlock block = new SBlock(invokable, null);
-        bb.installFixup(new BlockFrameFixup(block));
-        return block;
+      if (mf == null) {
+        SnapshotBuffer sb = sh.getBufferObject(SINVOKABLE_SIZE + 1);
+        int start = sb.addObject(block, Classes.blockClass, SINVOKABLE_SIZE + 1);
+        int base = start;
+        SInvokable meth = block.getMethod();
+        sb.putShortAt(base, meth.getIdentifier().getSymbolId());
+        sb.putByteAt(base + 2, (byte) 0);
+        return sb.calculateReferenceB(start);
       } else {
-        frame = (MaterializedFrame) result;
+        SnapshotBuffer sb = sh.getBufferObject(SINVOKABLE_SIZE + 1 + Long.BYTES);
+        int start = sb.addObject(block, Classes.blockClass, SINVOKABLE_SIZE + 1 + Long.BYTES);
+        int base = start;
+        SInvokable meth = block.getMethod();
+        sb.putShortAt(base, meth.getIdentifier().getSymbolId());
+        sb.putByteAt(base + 2, (byte) 1);
+
+        long framelocation = meth.getFrameSerializer().execute(block, sh);
+
+        sb.putLongAt(base + 3, framelocation);
+        return sb.calculateReferenceB(start);
       }
     }
-    return new SBlock(invokable, frame);
-  }
-
-  public static class BlockFrameFixup extends FixupInformation {
-    SBlock block;
-
-    public BlockFrameFixup(final SBlock block) {
-      this.block = block;
-    }
 
     @Override
-    public void fixUp(final Object o) {
-      try {
-        Field field = SBlock.class.getDeclaredField("context");
-        field.setAccessible(true);
-        Field modifiersField = Field.class.getDeclaredField("modifiers");
-        modifiersField.setAccessible(true);
-        modifiersField.setInt(field, field.getModifiers() & ~Modifier.FINAL);
-        field.set(block, o);
-      } catch (Exception e) {
-        throw new RuntimeException(e);
+    public Object deserialize(final DeserializationBuffer bb) {
+      short sinv = bb.getShort();
+      byte framePresent = bb.get();
+
+      SInvokable invokable = SnapshotBackend.lookupInvokable(sinv);
+      assert invokable != null : "Invokable not found";
+
+      MaterializedFrame frame = null;
+      if (framePresent == 1) {
+        Object result = bb.getMaterializedFrame(invokable);
+        if (DeserializationBuffer.needsFixup(result)) {
+          SBlock block = new SBlock(invokable, null);
+          bb.installFixup(new BlockFrameFixup(block));
+          return block;
+        } else {
+          frame = (MaterializedFrame) result;
+        }
+      }
+      return new SBlock(invokable, frame);
+    }
+
+    public static class BlockFrameFixup extends FixupInformation {
+      SBlock block;
+
+      public BlockFrameFixup(final SBlock block) {
+        this.block = block;
+      }
+
+      @Override
+      public void fixUp(final Object o) {
+        try {
+          Field field = SBlock.class.getDeclaredField("context");
+          field.setAccessible(true);
+          Field modifiersField = Field.class.getDeclaredField("modifiers");
+          modifiersField.setAccessible(true);
+          modifiersField.setInt(field, field.getModifiers() & ~Modifier.FINAL);
+          field.set(block, o);
+        } catch (Exception e) {
+          throw new RuntimeException(e);
+        }
       }
     }
-  }
 
-  public static class BlockArgumentFixup extends FixupInformation {
-    Object[] args;
-    int      idx;
+    public static class BlockArgumentFixup extends FixupInformation {
+      Object[] args;
+      int      idx;
 
-    public BlockArgumentFixup(final Object[] args, final int idx) {
-      this.args = args;
-      this.idx = idx;
+      public BlockArgumentFixup(final Object[] args, final int idx) {
+        this.args = args;
+        this.idx = idx;
+      }
+
+      @Override
+      public void fixUp(final Object o) {
+        args[idx] = o;
+      }
     }
 
-    @Override
-    public void fixUp(final Object o) {
-      args[idx] = o;
-    }
-  }
+    public static class FrameSlotFixup extends FixupInformation {
+      FrameSlot         slot;
+      MaterializedFrame frame;
 
-  public static class FrameSlotFixup extends FixupInformation {
-    FrameSlot         slot;
-    MaterializedFrame frame;
+      public FrameSlotFixup(final MaterializedFrame frame, final FrameSlot slot) {
+        this.frame = frame;
+        this.slot = slot;
+      }
 
-    public FrameSlotFixup(final MaterializedFrame frame, final FrameSlot slot) {
-      this.frame = frame;
-      this.slot = slot;
+      @Override
+      public void fixUp(final Object o) {
+        frame.setObject(slot, o);
+      }
     }
 
-    @Override
-    public void fixUp(final Object o) {
-      frame.setObject(slot, o);
-    }
   }
 
   @GenerateNodeFactory

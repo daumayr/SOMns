@@ -104,7 +104,7 @@ public abstract class EventualMessage extends SAbstractObject {
   }
 
   public final void updateSnapshotPhase(final byte newPhase) {
-    messageId = (messageId & 0xFF00) | newPhase;
+    messageId = (messageId & 0xFFFF00) | newPhase;
   }
 
   public abstract SSymbol getSelector();

@@ -236,10 +236,12 @@ public class SPromise extends SObjectWithClass {
 
   public final void registerWhenResolvedUnsynced(final PromiseMessage msg) {
 
-    // STracingPromise sp = (STracingPromise) this;
+    STracingPromise sp = (STracingPromise) this;
     // TODO: implement fix
-    // assert sp.getSnapshotLocation() == -1
-    // || sp.getSnapshotVersion() != SnapshotBackend.getSnapshotVersion();
+    assert (sp.getSnapshotLocation() == -1
+        || sp.getSnapshotVersion() != SnapshotBackend.getSnapshotVersion())
+        || SnapshotBackend.getSnapshotVersion() == TracingActivityThread.currentThread()
+                                                                        .getSnapshotId();
 
     if (whenResolved == null) {
       whenResolved = msg;
@@ -412,8 +414,6 @@ public class SPromise extends SObjectWithClass {
     }
 
     protected int version;
-    protected byte    markVersion;
-    protected boolean markUnresolvedSnapshot = false;
 
     @Override
     public int getNextEventNumber() {
@@ -821,6 +821,16 @@ public class SPromise extends SObjectWithClass {
       if (promise.chainedPromise != null) {
         SPromise chainedPromise = promise.chainedPromise;
         promise.chainedPromise = null;
+
+        if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.REPLAY) {
+          TracingActivityThread tat =
+              TracingActivityThread.currentThread();
+          if (promise.getSnapshotLocation() == -1
+              || promise.getSnapshotVersion() != tat.getSnapshotId()) {
+            SnapshotBackend.registerLostChain(chainedPromise, promise, tat.getSnapshotHeap());
+          }
+        }
+
         Object wrapped = chainedPromise.owner.wrapForUse(result, current, null);
         resolveAndTriggerListenersUnsynced(type, result, wrapped,
             chainedPromise, current, actorPool,
@@ -842,6 +852,17 @@ public class SPromise extends SObjectWithClass {
       if (promise.chainedPromiseExt != null) {
         ArrayList<SPromise> chainedPromiseExt = promise.chainedPromiseExt;
         promise.chainedPromiseExt = null;
+
+        if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.REPLAY) {
+          TracingActivityThread tat =
+              TracingActivityThread.currentThread();
+          if (promise.getSnapshotLocation() == -1
+              || promise.getSnapshotVersion() != tat.getSnapshotId()) {
+            for (SPromise p : chainedPromiseExt) {
+              SnapshotBackend.registerLostChain(p, promise, tat.getSnapshotHeap());
+            }
+          }
+        }
 
         for (SPromise p : chainedPromiseExt) {
           Object wrapped = p.owner.wrapForUse(result, current, null);
@@ -934,6 +955,23 @@ public class SPromise extends SObjectWithClass {
         ArrayList<PromiseMessage> whenResolvedExt = promise.whenResolvedExt;
         promise.whenResolved = null;
         promise.whenResolvedExt = null;
+
+        if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.REPLAY) {
+          TracingActivityThread tat =
+              TracingActivityThread.currentThread();
+          if (promise.getSnapshotLocation() == -1
+              || promise.getSnapshotVersion() != tat.getSnapshotId()) {
+
+            SnapshotBackend.registerLostMessage(whenResolved, promise, tat.getSnapshotHeap());
+
+            if (whenResolvedExt != null) {
+              for (PromiseMessage pm : whenResolvedExt) {
+                SnapshotBackend.registerLostMessage(pm, promise,
+                    tat.getSnapshotHeap());
+              }
+            }
+          }
+        }
 
         promise.scheduleCallbacksOnResolution(result,
             whenResolvedProfile.profile(whenResolved), current, actorPool, haltOnResolution);

@@ -5,6 +5,7 @@ import java.util.LinkedList;
 import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Queue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ForkJoinPool;
 import java.util.function.BiConsumer;
@@ -20,7 +21,7 @@ import som.interpreter.actors.SPromise.STracingPromise;
 import som.interpreter.objectstorage.ObjectTransitionSafepoint;
 import som.primitives.ObjectPrims.ClassPrim;
 import som.vm.VmSettings;
-import som.vm.constants.Classes;
+import som.vmobjects.SAbstractObject;
 import som.vmobjects.SClass;
 import tools.concurrency.TraceParser.ExternalMessageRecord;
 import tools.concurrency.TraceParser.ExternalPromiseMessageRecord;
@@ -35,6 +36,7 @@ import tools.snapshot.SnapshotBackend;
 import tools.snapshot.SnapshotBuffer;
 import tools.snapshot.SnapshotHeap;
 import tools.snapshot.deserialization.DeserializationBuffer;
+import tools.snapshot.nodes.AbstractSerializationNode;
 
 
 public class TracingActors {
@@ -45,6 +47,7 @@ public class TracingActors {
     private int              traceBufferId;
     protected int            version;
     private long                       msgCnt;
+    protected boolean                  reportDeferredDone;
 
     /**
      * This list is used to keep track of references to unserialized objects in the actor
@@ -144,6 +147,14 @@ public class TracingActors {
       this.stepToNextTurn = stepToNextTurn;
     }
 
+    public void setReportDeferredDone(final boolean val) {
+      this.reportDeferredDone = val;
+    }
+
+    public boolean isReportDeferredDone() {
+      return reportDeferredDone;
+    }
+
     public static void handleBreakpointsAndStepping(final EventualMessage msg,
         final WebDebugger dbg, final Actor actor) {
       if (msg.getHaltOnReceive() || ((TracingActor) actor).isStepToNextTurn()) {
@@ -188,6 +199,10 @@ public class TracingActors {
       }
     }
 
+    public int getnumdeferred() {
+      return this.externalReferences.size();
+    }
+
     /**
      * This method handles all the details of what to do when we want to serialize objects from
      * another actor.
@@ -197,9 +212,10 @@ public class TracingActors {
      * @param other {SnapshotBuffer that contains the farReference}
      * @param destination offset of the reference inside {@code other}
      */
-    public void farReference(final Object o, final SnapshotBuffer other,
+    public void farReference(final SAbstractObject o, final SnapshotBuffer other,
         final int destination) {
-      Long l = Types.getClassOf(o).getObjectLocation(o);
+
+      Long l = o.getSOMClass().getObjectLocation(o, other.getHeap().snapshotVersion);
 
       if (other != null && l != -1) {
         other.putLongAt(destination, l);
@@ -211,9 +227,23 @@ public class TracingActors {
       }
     }
 
+    public void farReferenceNoFillIn(final SAbstractObject o, final int version) {
+
+      Long l = o.getSOMClass().getObjectLocation(o, version);
+
+      if (l == -1) {
+        if (externalReferences.isEmpty()) {
+          SnapshotBackend.deferSerialization(this);
+        }
+        externalReferences.offer(new DeferredFarRefSerialization(null, 0, o));
+      }
+    }
+
     public void farReferenceMessage(final PromiseMessage pm, final SnapshotBuffer other,
         final int destination) {
-      Long l = Classes.messageClass.getObjectLocation(pm);
+
+      Long l =
+          AbstractSerializationNode.getObjectLocation(pm, other.getHeap().snapshotVersion);
 
       if (l != -1) {
         other.putLongAt(destination, l);
@@ -235,23 +265,21 @@ public class TracingActors {
     }
 
     public void handleObjectsReferencedFromFarRefs(final SnapshotHeap sb) {
-      synchronized (externalReferences) {
-        while (!externalReferences.isEmpty()) {
-          DeferredFarRefSerialization frt = externalReferences.poll();
-          assert frt != null;
+      while (!externalReferences.isEmpty()) {
+        DeferredFarRefSerialization frt = externalReferences.poll();
+        assert frt != null;
 
-          // ignore todos from a different snapshot
+        // ignore todos from a different snapshot
 
-          if (frt.isCurrent()) {
-            SClass clazz = Types.getClassOf(frt.target);
-            long location;
-            if (frt.target instanceof PromiseMessage) {
-              location = ((PromiseMessage) frt.target).forceSerialize(sb);
-            } else {
-              location = clazz.serialize(frt.target, sb);
-            }
-            frt.resolve(location);
+        if (frt.isCurrent()) {
+          SClass clazz = Types.getClassOf(frt.target);
+          long location;
+          if (frt.target instanceof PromiseMessage) {
+            location = ((PromiseMessage) frt.target).forceSerialize(sb);
+          } else {
+            location = clazz.serialize(frt.target, sb);
           }
+          frt.resolve(location);
         }
       }
     }
@@ -297,11 +325,43 @@ public class TracingActors {
         throw new UnsupportedOperationException("Allready has a datasource!");
       }
       dataSource = ds;
+
+      for (MessageRecord mr : requestedExternalMessages.keySet()) {
+        ReplayActor receiver = requestedExternalMessages.remove(mr);
+
+        if (mr instanceof ExternalMessageRecord) {
+          ExternalMessageRecord emr = (ExternalMessageRecord) mr;
+          dataSource.requestExternalMessage(emr.method, emr.dataId, receiver);
+        } else {
+          ExternalPromiseMessageRecord emr = (ExternalPromiseMessageRecord) mr;
+          dataSource.requestExternalMessage(emr.method, emr.dataId, receiver);
+        }
+      }
+
+      assert requestedExternalMessages.size() == 0;
+
+      requestedExternalMessages = null;
+    }
+
+    public boolean hasDataSource() {
+      return dataSource != null;
     }
 
     @Override
     public LinkedList<ReplayRecord> getReplayEventBuffer() {
       return this.replayEvents;
+    }
+
+    private static int lookupId() {
+      if (VmSettings.REPLAY && Thread.currentThread() instanceof ActorProcessingThread) {
+        ActorProcessingThread t = (ActorProcessingThread) Thread.currentThread();
+        ReplayActor parent = (ReplayActor) t.currentMessage.getTarget();
+        int parentId = parent.getActorId();
+        int childNo = parent.addChild();
+        return TraceParser.getReplayId(parentId, childNo);
+      }
+
+      return 0;
     }
 
     public static ReplayActor getActorWithId(final long id) {
@@ -443,6 +503,8 @@ public class TracingActors {
           handleBreakpointsAndStepping(msg, dbg, a);
           msg.execute();
         }
+
+        requestExternalMessageIfNeeded(a);
 
         currentThread.createdMessages += todo.size();
       }

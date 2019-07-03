@@ -17,6 +17,7 @@ public class DeferredFarRefSerialization {
 
   public void resolve(final long targetOffset) {
     if (referer != null) {
+      assert targetOffset != 0;
       referer.putLongAt(referenceOffset, targetOffset);
     }
   }

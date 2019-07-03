@@ -1,5 +1,8 @@
 package tools.replay;
 
+import tools.concurrency.TracingActors.ReplayActor;
+
+
 public interface ExternalDataSource {
 
   /**
@@ -8,5 +11,5 @@ public interface ExternalDataSource {
    * on it with the needed data. This method will then cause the message to be created and
    * sent.
    */
-  void requestExternalMessage(short method, int dataId);
+  void requestExternalMessage(short method, int dataId, ReplayActor target);
 }

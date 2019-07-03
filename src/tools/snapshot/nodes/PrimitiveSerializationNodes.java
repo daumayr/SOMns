@@ -13,6 +13,7 @@ import som.interpreter.SomLanguage;
 import som.interpreter.actors.SFarReference;
 import som.vm.constants.Classes;
 import som.vm.constants.Nil;
+import som.vmobjects.SAbstractObject;
 import som.vmobjects.SClass;
 import som.vmobjects.SInvokable;
 import som.vmobjects.SObjectWithClass;
@@ -44,7 +45,7 @@ public abstract class PrimitiveSerializationNodes {
 
       String s = (String) o;
       byte[] data = s.getBytes(StandardCharsets.UTF_8);
-      SnapshotBuffer vb = getBuffer().getBuffer(data.length + 4);
+      SnapshotBuffer vb = getBuffer().getBufferObject(data.length + 4);
       int start = vb.addValue(o, Classes.stringClass, data.length + 4);
       int base = start;
       vb.putIntAt(base, data.length);
@@ -74,7 +75,7 @@ public abstract class PrimitiveSerializationNodes {
       }
 
       long l = o;
-      SnapshotBuffer vb = getBuffer().getBuffer(Long.BYTES);
+      SnapshotBuffer vb = getBuffer().getBufferObject(Long.BYTES);
       int base = vb.addValue((long) o, Classes.integerClass, Long.BYTES);
       vb.putLongAt(base, l);
       return vb.calculateReferenceB(base);
@@ -90,7 +91,7 @@ public abstract class PrimitiveSerializationNodes {
       }
 
       long l = o;
-      SnapshotBuffer vb = getBuffer().getBuffer(Long.BYTES);
+      SnapshotBuffer vb = getBuffer().getBufferObject(Long.BYTES);
       int base = vb.addValue(o, Classes.integerClass, Long.BYTES);
       vb.putLongAt(base, l);
       return vb.calculateReferenceB(base);
@@ -237,6 +238,7 @@ public abstract class PrimitiveSerializationNodes {
       int base = vb.addValueObject(cls, Classes.classClass, Integer.BYTES + Long.BYTES);
       vb.putIntAt(base, cls.getIdentity());
       SObjectWithClass outer = cls.getEnclosingObject();
+      assert outer.isValue();
       vb.putLongAt(base + Integer.BYTES,
           outer.getSOMClass().serialize(outer, sh));
 
@@ -253,7 +255,14 @@ public abstract class PrimitiveSerializationNodes {
     @Specialization(guards = "!cls.isValue()")
     protected long doNotValueClass(final SClass cls, final SnapshotHeap sh,
         @Cached("getMain()") final TracingActor main) {
+
+      long location = getObjectLocation(cls, sh.getSnapshotVersion());
+      if (location != -1) {
+        return location;
+      }
+
       SnapshotBuffer sb = sh.getBufferObject(Integer.BYTES + Long.BYTES);
+
       int base = sb.addObject(cls, Classes.classClass, Integer.BYTES + Long.BYTES);
       sb.putIntAt(base, cls.getIdentity());
 
@@ -268,7 +277,7 @@ public abstract class PrimitiveSerializationNodes {
         }
         owner.farReference(outer, sb, base + Integer.BYTES);
       }
-      long location = sb.calculateReferenceB(base);
+      location = sb.calculateReferenceB(base);
       SnapshotBackend.registerClassLocation(cls.getIdentity(), location);
       return location;
     }
@@ -299,7 +308,7 @@ public abstract class PrimitiveSerializationNodes {
 
       SInvokable si = o;
       SnapshotBuffer vb = getBuffer().getBufferObject(Short.BYTES);
-      int base = vb.addObject(si, Classes.methodClass, Short.BYTES);
+      int base = vb.addValueObject(si, Classes.methodClass, Short.BYTES);
       vb.putShortAt(base, si.getIdentifier().getSymbolId());
       return vb.calculateReferenceB(base);
     }
@@ -339,22 +348,21 @@ public abstract class PrimitiveSerializationNodes {
 
     @Specialization
     public long serialize(final SFarReference o, final SnapshotHeap sh) {
-
-      long location = getObjectValueLocation(o);
+      long location = getObjectLocation(o, sh.getSnapshotVersion());
       if (location != -1) {
         return location;
       }
 
-      SnapshotBuffer vb = getBuffer().getBufferObject(Integer.BYTES + Long.BYTES);
+      SnapshotBuffer vb = sh.getBufferObject(Integer.BYTES + Long.BYTES);
       int base =
-          vb.addValueObject(o, SFarReference.getFarRefClass(), Integer.BYTES + Long.BYTES);
+          vb.addObject(o, SFarReference.getFarRefClass(), Integer.BYTES + Long.BYTES);
       TracingActor other = (TracingActor) o.getActor();
       vb.putIntAt(base, other.getActorId());
 
       // writing the reference is done through this method.
       // actual writing may happen at a later point in time if the object wasn't serialized
-      // yetD
-      other.farReference(o.getValue(), vb, base + Integer.BYTES);
+      // yet
+      other.farReference((SAbstractObject) o.getValue(), vb, base + Integer.BYTES);
       return vb.calculateReferenceB(base);
     }
 
@@ -393,10 +401,11 @@ public abstract class PrimitiveSerializationNodes {
         // This may be an alternative to making final fields non-final.
         // Only replay executions would be affected by this.
         try {
-          Field field = SFarReference.class.getField("value");
+          Field field = SFarReference.class.getDeclaredField("value");
           Field modifiersField = Field.class.getDeclaredField("modifiers");
           modifiersField.setAccessible(true);
           modifiersField.setInt(field, field.getModifiers() & ~Modifier.FINAL);
+          field.setAccessible(true);
           field.set(ref, o);
         } catch (Exception e) {
           throw new RuntimeException(e);

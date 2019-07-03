@@ -205,11 +205,6 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
       TracingBackend.addExternalData(externalData, this);
       TracingBackend.unregisterThread(this);
     }
-    if (VmSettings.SNAPSHOTS_ENABLED) {
-      if (this.snapshotId == SnapshotBackend.getSnapshotVersion()) {
-        SnapshotBackend.registerSnapshotBuffer(snapshotHeap, messageLocations);
-      }
-    }
 
     vm.leaveContext();
     super.onTermination(exception);
@@ -265,11 +260,14 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
         extIndex = 0;
       }
     }
+
     this.snapshotId = SnapshotBackend.getSnapshotVersion();
 
     this.snapshotHeap = new SnapshotHeap((ActorProcessingThread) this);
+    this.messageLocations = new ArrayList<>();
 
-    this.messageLocations.clear();
+    if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.SNAPSHOT_REPLAY) {
+      SnapshotBackend.registerSnapshotBuffer(snapshotHeap, messageLocations);
+    }
   }
-
 }

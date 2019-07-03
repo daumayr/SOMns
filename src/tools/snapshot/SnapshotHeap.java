@@ -40,10 +40,12 @@ public class SnapshotHeap {
   }
 
   public TracingActor getActor() {
+    assert !(this instanceof ValueHeap);
     return CompilerDirectives.castExact(owner.getCurrentActor(), TracingActor.class);
   }
 
   public ActorProcessingThread getOwner() {
+    assert !(this instanceof ValueHeap);
     return owner;
   }
 
@@ -54,7 +56,8 @@ public class SnapshotHeap {
    * @return
    */
   public SnapshotBuffer getBuffer(final int size) {
-    if ((current.getSize() - current.position()) <= size) {
+    assert size < current.getSize();
+    if ((current.position() + size) >= current.getSize()) {
       this.size += current.position();
       current = new SnapshotBuffer(this, this.size);
       bufferStorage.add(current);
@@ -64,7 +67,8 @@ public class SnapshotHeap {
   }
 
   public SnapshotBuffer getBufferObject(final int size) {
-    if ((current.getSize() - current.position()) <= (size + Integer.BYTES)) {
+    assert size <= current.getSize();
+    if ((current.position() + (size + Integer.BYTES)) >= current.getSize()) {
       this.size += current.position();
       current = new SnapshotBuffer(this, this.size);
       bufferStorage.add(current);
@@ -76,6 +80,7 @@ public class SnapshotHeap {
   public void writeToChannel(final FileOutputStream fos) throws IOException {
 
     for (SnapshotBuffer sb : bufferStorage) {
+      assert sb.position() >= 0;
       fos.getChannel().write(ByteBuffer.wrap(sb.getRawBuffer(), 0, sb.position()));
       fos.flush();
     }

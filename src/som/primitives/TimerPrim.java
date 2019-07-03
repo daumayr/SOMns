@@ -126,7 +126,8 @@ public abstract class TimerPrim extends BinarySystemOperation {
 
   private static final class TimeDataSource implements ExternalDataSource {
     @Override
-    public void requestExternalMessage(final short method, final int dataId) {
+    public void requestExternalMessage(final short method, final int dataId,
+        final ReplayActor receiver) {
       assert VmSettings.REPLAY;
       synchronized (REPLAY_LOCK) {
         SFarReference target = replayTargetMap.remove(dataId);

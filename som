@@ -97,6 +97,10 @@ tools.add_argument('-bd', '--buffer-delay', help='set the delay for checking if 
                     dest='buffer_delay', default=50)
 tools.add_argument('-as', '--actor-snapshots', help='actor tracing/replay with snapshots',
                     dest='actor_snapshots', action='store_true', default=False)
+tools.add_argument('-asr', '--actor-snapshots-restore', help='select a snapshotbuffer to be restored (number)',
+                    dest='snapshot_restore', default=1)
+tools.add_argument('-asf', '--actor-snapshots-frequency', help='select a 1 out of n iterations is snapshot',
+                    dest='snapshot_frequency', default=1)
 tools.add_argument('-sam', '--snapshot-all-messages', help='snapshot all messages',
                     dest='actor_snapshots_all', action='store_true', default=False)
 tools.add_argument('-sind', '--snapshot-inlining-depth', help='set the inlining limit of snapshot serialization',
@@ -336,7 +340,7 @@ if args.buffer_recycling:
     flags += ['-Dsom.bufferRecycling=false']
 if args.buffer_size:
     flags += ['-Dsom.buffSize=%s' % args.buffer_size ]
-if args.buffer_size:
+if args.buffer_delay:
     flags += ['-Dsom.buffDelay=%s' % args.buffer_delay ]
 if args.buffers_per_thread:
     flags += ['-Dsom.buffPerThread=%s' % args.buffers_per_thread ]
@@ -344,6 +348,10 @@ if args.test_actor_snapshots:
     flags += ['-Dsom.snapshotTest=true']
 if args.actor_snapshots:
     flags += ['-Dsom.actorSnapshot=true']
+if args.snapshot_restore:
+    flags += ['-Dsom.actorSnapshotResore=%s' % args.snapshot_restore ]
+if args.snapshot_frequency:
+    flags += ['-Dsom.actorSnapshotFrequency=%s' % args.snapshot_frequency ]
 if args.actor_snapshots_all:
     flags += ['-Dsom.actorSnapshotAll=true']
 if args.snapshot_inlining_depth:

@@ -79,6 +79,7 @@ public class DeserializationBuffer {
   public static long getAbsolute(final long current) {
     long pos = (int) current;
     if (!VmSettings.TEST_SNAPSHOTS) {
+      assert pos >= 0;
       pos += SnapshotParser.getFileOffset(current);
     }
     return pos;
@@ -151,7 +152,7 @@ public class DeserializationBuffer {
 
   /**
    * This causes the lastRef to stay overwritten for fixup purposes!
-   * 
+   *
    * @return
    */
   public Object getReference() {
@@ -229,6 +230,15 @@ public class DeserializationBuffer {
     FixupList fl = (FixupList) deserialized.get(lastRef);
     if (fl == null) {
       deserialized.put(lastRef, new FixupList(fi));
+    } else {
+      fl.add(fi);
+    }
+  }
+
+  public synchronized void installFixup(final FixupInformation fi, final long ref) {
+    FixupList fl = (FixupList) deserialized.get(ref);
+    if (fl == null) {
+      deserialized.put(ref, new FixupList(fi));
     } else {
       fl.add(fi);
     }
@@ -335,6 +345,7 @@ public class DeserializationBuffer {
       // 0x FF FF FF FF FF FF
       long offset = 0x0000FFFFFFFFFFFFL & newPosition;
 
+      assert offset >= 0;
       // absolute position in file
       if (!VmSettings.TEST_SNAPSHOTS) {
         offset += SnapshotParser.getFileOffset(newPosition);

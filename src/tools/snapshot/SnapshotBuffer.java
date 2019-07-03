@@ -2,6 +2,7 @@ package tools.snapshot;
 
 import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 
+import som.interpreter.actors.Actor.ActorProcessingThread;
 import som.interpreter.actors.EventualMessage;
 import som.vm.VmSettings;
 import som.vm.constants.Classes;
@@ -49,6 +50,7 @@ public class SnapshotBuffer extends TraceBuffer {
 
   public int reserveSpace(final int bytes) {
     int oldPos = this.position;
+    assert bytes >= 0;
     this.position += bytes;
     return oldPos;
   }
@@ -56,7 +58,8 @@ public class SnapshotBuffer extends TraceBuffer {
   public int addObject(final SAbstractObject o, final SClass clazz, final int payload) {
     assert (o.getSnapshotLocation() == -1
         || o.getSnapshotVersion() != parent.getSnapshotVersion()) : "Object serialized multiple times";
-
+    assert !(parent instanceof ValueHeap);
+    assert payload >= 0;
     int oldPos = this.position;
     o.updateSnapshotLocation(calculateReference(oldPos), parent.getSnapshotVersion());
     this.putIntAt(this.position, clazz.getIdentity());
@@ -69,7 +72,7 @@ public class SnapshotBuffer extends TraceBuffer {
         serializeWithBoundary(clazz);
       } else {
         assert owner != null;
-        owner.farReference(clazz, null, 0);
+        owner.farReferenceNoFillIn(clazz, parent.getSnapshotVersion());
       }
     }
 
@@ -82,6 +85,7 @@ public class SnapshotBuffer extends TraceBuffer {
 
   public int addValueObject(final SAbstractObject o, final SClass clazz, final int payload) {
     assert !SnapshotBackend.getValuepool().containsKey(o) : "Object serialized multiple times";
+    assert parent instanceof ValueHeap;
 
     int oldPos = this.position;
     o.updateSnapshotLocation(calculateReference(oldPos), parent.getSnapshotVersion());
@@ -95,7 +99,7 @@ public class SnapshotBuffer extends TraceBuffer {
         serializeWithBoundary(clazz);
       } else {
         assert owner != null;
-        owner.farReference(clazz, null, 0);
+        owner.farReferenceNoFillIn(clazz, parent.snapshotVersion);
       }
     }
 
@@ -104,7 +108,7 @@ public class SnapshotBuffer extends TraceBuffer {
 
   public int addValue(final Object o, final SClass clazz, final int payload) {
     assert !SnapshotBackend.getValuepool().containsKey(o) : "Object serialized multiple times";
-
+    assert parent instanceof ValueHeap;
     int oldPos = this.position;
 
     synchronized (SnapshotBackend.getValuepool()) {
@@ -120,7 +124,7 @@ public class SnapshotBuffer extends TraceBuffer {
         serializeWithBoundary(clazz);
       } else {
         assert owner != null;
-        owner.farReference(clazz, null, 0);
+        owner.farReferenceNoFillIn(clazz, parent.snapshotVersion);
       }
     }
 
@@ -129,7 +133,8 @@ public class SnapshotBuffer extends TraceBuffer {
 
   @TruffleBoundary
   private void serializeWithBoundary(final SClass clazz) {
-    clazz.getSOMClass().serialize(clazz, parent);
+    clazz.getSOMClass().serialize(clazz,
+        ActorProcessingThread.currentThread().getSnapshotHeap());
   }
 
   public int getSize() {
@@ -141,12 +146,14 @@ public class SnapshotBuffer extends TraceBuffer {
     // (either from a promise or a mailbox)
     assert (msg.getSnapshotLocation() == -1
         || msg.getSnapshotVersion() != parent.getSnapshotVersion()) : "Message serialized multiple times";
+    assert !(parent instanceof ValueHeap);
 
     int oldPos = this.position;
     msg.updateSnapshotLocation(calculateReference(oldPos), parent.getSnapshotVersion());
     // owner.addMessageLocation(ta.getActorId(), calculateReference(oldPos));
 
     this.putIntAt(this.position, Classes.messageClass.getIdentity());
+    assert payload >= 0;
     this.position += CLASS_ID_SIZE + payload;
     return oldPos + CLASS_ID_SIZE;
   }

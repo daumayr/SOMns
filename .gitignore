@@ -9,6 +9,7 @@ user-dict.txt
 /libs/*.tar.gz
 /libs/jvmci
 /libs/jacoco
+/libs/jvmci
 jacoco.exec
 jacoco.xml
 /report

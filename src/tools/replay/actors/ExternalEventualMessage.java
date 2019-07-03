@@ -19,7 +19,7 @@ public class ExternalEventualMessage {
         final Object[] arguments,
         final Actor sender, final SResolver resolver, final RootCallTarget onReceive,
         final short method, final int dataId) {
-      super(target, selector, arguments, sender, resolver, onReceive);
+      super(target, selector, arguments, sender, resolver, onReceive, false, false);
       this.method = method;
       this.dataId = dataId;
     }

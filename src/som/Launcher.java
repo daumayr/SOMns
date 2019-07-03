@@ -47,8 +47,11 @@ public final class Launcher {
       Value result = context.eval(START);
       exitCode = result.as(Integer.class);
     } finally {
+      if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.TEST_SNAPSHOTS && !VmSettings.REPLAY) {
+        SnapshotBackend.ensureLastSnapshotPersisted();
+      }
       context.eval(SHUTDOWN);
-      context.close();
+      context.close(false);
       finalizeExecution(exitCode);
     }
 
@@ -58,9 +61,6 @@ public final class Launcher {
 
   private static void finalizeExecution(final int exitCode) {
     TracingBackend.waitForTrace();
-    if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.TEST_SNAPSHOTS && !VmSettings.REPLAY) {
-      SnapshotBackend.writeSnapshot();
-    }
 
     // Note: Kompos Trace is parsed right after writing it
     // to produce the list of messages on the erroneous path.

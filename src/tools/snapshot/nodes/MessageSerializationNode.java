@@ -109,7 +109,7 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
         long nilLocation = Classes.nilClass.serialize(Nil.nilObject, sb.getHeap());
         sb.putLongAt((base + 1) + i * Long.BYTES, nilLocation);
       } else if (obj instanceof SPromise) {
-        PromiseSerializationNodes.handleReferencedPromise((SPromise) obj, sb,
+        PromiseSerializationNodes.handleReferencedPromise((SPromise) obj, sb, sb.getHeap(),
             (base + 1) + i * Long.BYTES);
       } else {
         sb.putLongAt((base + 1) + i * Long.BYTES,
@@ -203,7 +203,7 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
         (TracingActor) dm.getSender(), base, sb);
 
     sb.putLongAt(base + COMMONALITY_BYTES, serializeResolver(resolver, sb));
-    PromiseSerializationNodes.handleReferencedPromise(prom, sb,
+    PromiseSerializationNodes.handleReferencedPromise(prom, sb, sh,
         base + COMMONALITY_BYTES + Long.BYTES);
     base += COMMONALITY_BYTES + Long.BYTES + Long.BYTES;
 
@@ -232,7 +232,7 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
     doCommonalities(MessageType.CallbackMessageNR, selector,
         (TracingActor) dm.getSender(), base, sb);
 
-    PromiseSerializationNodes.handleReferencedPromise(prom, sb, base + COMMONALITY_BYTES);
+    PromiseSerializationNodes.handleReferencedPromise(prom, sb, sh, base + COMMONALITY_BYTES);
     base += COMMONALITY_BYTES + Long.BYTES;
 
     return processArguments(sb, args, base, start);
@@ -269,7 +269,7 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
         (TracingActor) dm.getSender(), base, sb);
 
     sb.putLongAt(base + COMMONALITY_BYTES, serializeResolver(resolver, sb));
-    PromiseSerializationNodes.handleReferencedPromise(prom, sb,
+    PromiseSerializationNodes.handleReferencedPromise(prom, sb, sh,
         base + COMMONALITY_BYTES + Long.BYTES);
 
     sb.putIntAt(base + COMMONALITY_BYTES + Long.BYTES + Long.BYTES, fsender);
@@ -301,7 +301,7 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
     doCommonalities(MessageType.PromiseMessageNR, selector,
         (TracingActor) dm.getSender(), base, sb);
 
-    PromiseSerializationNodes.handleReferencedPromise(prom, sb, base + COMMONALITY_BYTES);
+    PromiseSerializationNodes.handleReferencedPromise(prom, sb, sh, base + COMMONALITY_BYTES);
     sb.putIntAt(base + COMMONALITY_BYTES + Long.BYTES, fsender);
     base += COMMONALITY_BYTES + Long.BYTES + Integer.BYTES;
 
@@ -331,7 +331,7 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
         (TracingActor) dm.getSender(), base, sb);
 
     sb.putLongAt(base + COMMONALITY_BYTES, serializeResolver(resolver, sb));
-    PromiseSerializationNodes.handleReferencedPromise(dm.getPromise(), sb,
+    PromiseSerializationNodes.handleReferencedPromise(dm.getPromise(), sb, sh,
         base + COMMONALITY_BYTES + Long.BYTES);
     base += COMMONALITY_BYTES + Long.BYTES + Long.BYTES;
 
@@ -358,7 +358,7 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
 
     doCommonalities(MessageType.UndeliveredPromiseMessageNR, selector,
         (TracingActor) dm.getSender(), base, sb);
-    PromiseSerializationNodes.handleReferencedPromise(dm.getPromise(), sb,
+    PromiseSerializationNodes.handleReferencedPromise(dm.getPromise(), sb, sh,
         base + COMMONALITY_BYTES);
     base += COMMONALITY_BYTES + Long.BYTES;
 

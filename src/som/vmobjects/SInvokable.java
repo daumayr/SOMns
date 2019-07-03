@@ -52,8 +52,8 @@ import som.interpreter.nodes.dispatch.LexicallyBoundDispatchNode;
 import som.vm.Symbols;
 import som.vm.VmSettings;
 import som.vm.constants.Classes;
-import tools.snapshot.nodes.BlockSerializationNode.FrameSerializationNode;
-import tools.snapshot.nodes.BlockSerializationNodeFactory.FrameSerializationNodeFactory;
+import tools.snapshot.nodes.BlockSerializationNodes.FrameSerializationNode;
+import tools.snapshot.nodes.BlockSerializationNodesFactory.FrameSerializationNodeFactory;
 
 
 public class SInvokable extends SAbstractObject implements Dispatchable {
@@ -192,6 +192,7 @@ public class SInvokable extends SAbstractObject implements Dispatchable {
   public FrameSerializationNode getFrameSerializer() {
     if (frameSerializer == null) {
       CompilerDirectives.transferToInterpreter();
+      assert invokable != null;
       FrameDescriptor fd = ((Method) invokable).getLexicalScope().getOuterMethod()
                                                .getMethod().getFrameDescriptor();
       frameSerializer = FrameSerializationNodeFactory.create(fd);

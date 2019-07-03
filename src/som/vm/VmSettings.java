@@ -45,6 +45,9 @@ public class VmSettings implements Settings {
 
   public static final boolean SNAPSHOT_REPLAY;
   public static final int     SNAPSHOT_INLINING_DEPTH;
+  public static final int     SNAPSHOT_REPLAY_VERSION;
+
+  public static final int SNAPSHOT_FREQUENCY;
 
   static {
     String prop = System.getProperty("som.threads");
@@ -73,6 +76,8 @@ public class VmSettings implements Settings {
     TEST_SERIALIZE_ALL = getBool("som.actorSnapshotAll", false);
     SNAPSHOTS_ENABLED = getBool("som.actorSnapshot", false) || TEST_SNAPSHOTS;
     TRACK_SNAPSHOT_ENTITIES = (REPLAY && SNAPSHOTS_ENABLED);
+    SNAPSHOT_REPLAY_VERSION = getInteger("som.actorSnapshotResore", 1);
+    SNAPSHOT_FREQUENCY = getInteger("som.actorSnapshotFrequency", 1);
     SNAPSHOT_REPLAY = REPLAY && SNAPSHOTS_ENABLED;
 
     boolean dm = getBool("som.dynamicMetrics", false);

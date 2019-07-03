@@ -23,6 +23,7 @@ import som.interpreter.objectstorage.ObjectTransitionSafepoint;
 import som.interpreter.objectstorage.StorageLocation;
 import som.primitives.ObjectPrims.ClassPrim;
 import som.primitives.ObjectPrimsFactory.ClassPrimFactory;
+import som.vmobjects.SAbstractObject;
 import som.vmobjects.SClass;
 import som.vmobjects.SObject;
 import som.vmobjects.SObject.SImmutableObject;
@@ -197,7 +198,7 @@ public abstract class ObjectSerializationNodes {
       } else {
         SnapshotBuffer sb = sh.getBufferObject(FIELD_SIZE * fieldCnt);
         int base = sb.addObject(so, so.getSOMClass(), FIELD_SIZE * fieldCnt);
-        return doCached(so, sb, base);
+        return doCached(so, sb, sh, base);
       }
     }
 
@@ -224,12 +225,13 @@ public abstract class ObjectSerializationNodes {
         SnapshotBuffer vb = getBuffer().getBufferObject(FIELD_SIZE * fieldCnt);
         int base = vb.addValueObject(so, so.getSOMClass(), FIELD_SIZE * fieldCnt);
         // as contents of a value have to be values we can just pass vb.
-        return doCached(so, vb, base);
+        return doCached(so, vb, sh, base);
       }
     }
 
     @ExplodeLoop
-    public long doCached(final SObject o, final SnapshotBuffer sb, final int base) {
+    public long doCached(final SObject o, final SnapshotBuffer sb, final SnapshotHeap sh,
+        final int base) {
       assert fieldCnt < MAX_FIELD_CNT;
 
       for (int i = 0; i < fieldCnt; i++) {
@@ -237,7 +239,14 @@ public abstract class ObjectSerializationNodes {
         // TODO type profiles could be an optimization (separate profile for each slot)
         // TODO optimize, maybe it is better to add an integer to the objects (indicating their
         // offset) rather than using a map.
-        sb.putLongAt(base + (8 * i), cachedSerializers[i].execute(value, sb.getHeap()));
+
+        if (value instanceof SAbstractObject) {
+          SAbstractObject v = (SAbstractObject) value;
+          if (o.isValue()) {
+            assert v.isValue();
+          }
+        }
+        sb.putLongAt(base + (8 * i), cachedSerializers[i].execute(value, sh));
       }
       return sb.calculateReferenceB(base);
     }
@@ -295,9 +304,19 @@ public abstract class ObjectSerializationNodes {
   public abstract static class SObjectWithoutFieldsSerializationNode
       extends AbstractSerializationNode {
 
-    @ExplodeLoop
-    @Specialization
+    @Specialization(guards = "o.isValue()")
     public long serialize(final SObjectWithoutFields o, final SnapshotHeap sh) {
+      long location = getObjectValueLocation(o);
+      if (location != -1) {
+        return location;
+      }
+
+      SnapshotBuffer vb = getBuffer().getBufferObject(0);
+      return vb.calculateReferenceB(vb.addValueObject(o, o.getSOMClass(), 0));
+    }
+
+    @Specialization
+    public long serializeValue(final SObjectWithoutFields o, final SnapshotHeap sh) {
       long location = getObjectLocation(o, sh.getSnapshotVersion());
       if (location != -1) {
         return location;

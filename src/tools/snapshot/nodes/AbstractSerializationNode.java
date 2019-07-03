@@ -8,6 +8,7 @@ import som.vmobjects.SAbstractObject;
 import som.vmobjects.SClass;
 import tools.snapshot.SnapshotBackend;
 import tools.snapshot.SnapshotHeap;
+import tools.snapshot.ValueHeap;
 import tools.snapshot.deserialization.DeserializationBuffer;
 
 
@@ -25,7 +26,7 @@ public abstract class AbstractSerializationNode extends Node {
     return deserialize(bb);
   }
 
-  protected static SnapshotHeap getBuffer() {
+  protected static ValueHeap getBuffer() {
     return SnapshotBackend.getValueHeap();
   }
 

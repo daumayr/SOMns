@@ -7,10 +7,12 @@ import com.oracle.truffle.api.nodes.RootNode;
 import com.oracle.truffle.api.profiles.ValueProfile;
 import com.oracle.truffle.api.source.SourceSection;
 
+import som.Output;
 import som.VM;
 import som.interpreter.SArguments;
 import som.interpreter.SomLanguage;
 import som.interpreter.actors.Actor.ActorProcessingThread;
+import som.interpreter.actors.EventualMessage.PromiseMessage;
 import som.interpreter.actors.SPromise.SResolver;
 import som.primitives.ObjectPrims.ClassPrim;
 import som.primitives.ObjectPrimsFactory.ClassPrimFactory;
@@ -81,14 +83,13 @@ public abstract class ReceivedRootNode extends RootNode {
     ActorProcessingThread currentThread = (ActorProcessingThread) Thread.currentThread();
 
     if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.TEST_SNAPSHOTS && !VmSettings.REPLAY) {
-      SnapshotHeap sh = currentThread.getSnapshotHeap();
 
-      sh.getActor().handleObjectsReferencedFromFarRefs(sh, classPrim);
+      SnapshotHeap sh = currentThread.getSnapshotHeap();
 
       if (sh.needsToBeSnapshot(msg.getSnapshotPhase())) {
         long msgIdentifier =
             ((TracingActor) msgClass.profile(msg).getTarget()).getMessageIdentifier();
-        long location = serializeMessageIfNecessary(msg, sh);
+        long location = serializer.execute(msg, sh);
         sh.getOwner().addMessageLocation(msgIdentifier, location);
       }
     }
@@ -144,11 +145,6 @@ public abstract class ReceivedRootNode extends RootNode {
   @Override
   public SourceSection getSourceSection() {
     return sourceSection;
-  }
-
-  private long serializeMessageIfNecessary(final EventualMessage msg,
-      final SnapshotHeap sh) {
-    return serializer.execute(msg, sh);
   }
 
   protected final void resolvePromise(final VirtualFrame frame,

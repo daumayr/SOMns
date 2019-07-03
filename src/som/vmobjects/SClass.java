@@ -358,6 +358,7 @@ public final class SClass extends SObjectWithClass {
    */
   public Dispatchable lookupMessage(final SSymbol selector,
       final AccessModifier hasAtLeast) {
+    assert dispatchables != null : this.name + "  : " + selector.getString();
     assert hasAtLeast.ordinal() >= AccessModifier.PROTECTED.ordinal() : "Access modifier should be protected or public";
     VM.callerNeedsToBeOptimized("should never be called on fast path");
 
@@ -396,12 +397,12 @@ public final class SClass extends SObjectWithClass {
     }
   }
 
-  public long getObjectLocation(final Object obj) {
+  public long getObjectLocation(final Object obj, final long version) {
     if (declaredAsValue || (obj instanceof SClass && ((SClass) obj).isValue())) {
       return getFromBuffer(obj);
     } else {
       SAbstractObject aobj = (SAbstractObject) obj;
-      return aobj.getSnapshotLocation();
+      return AbstractSerializationNode.getObjectLocation(aobj, version);
     }
   }
 
