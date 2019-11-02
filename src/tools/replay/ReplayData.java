@@ -8,7 +8,6 @@ import java.util.Queue;
 
 import som.vm.Activity;
 import tools.concurrency.TracingActivityThread;
-import tools.replay.ReplayRecord.MessageRecord;
 import tools.replay.ReplayRecord.NumberedPassiveRecord;
 
 
@@ -142,36 +141,12 @@ public class ReplayData {
       return i;
     }
 
-    protected void onContextStart(final int ordering) {}
+    protected void onContextStart(final int ordering) {
+    }
 
     @Override
     public String toString() {
       return "" + entityId + ":" + childNo;
-    }
-  }
-
-  /**
-   * Node in actor creation hierarchy.
-   */
-  protected static class ActorNode extends EntityNode {
-    LinkedList<MessageRecord> expectedMessages = new LinkedList<>();
-
-    ActorNode(final long actorId) {
-      super(actorId);
-    }
-
-    protected void addMessageRecord(final MessageRecord mr) {
-      expectedMessages.add(mr);
-    }
-
-    public LinkedList<MessageRecord> getExpectedMessages() {
-      return expectedMessages;
-    }
-  }
-
-  protected static class ChannelNode extends EntityNode {
-    public ChannelNode(final long entityId) {
-      super(entityId);
     }
   }
 }
