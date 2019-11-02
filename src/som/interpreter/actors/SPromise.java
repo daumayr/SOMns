@@ -33,8 +33,6 @@ public class SPromise extends SObjectWithClass {
       final SourceSection section) {
     if (VmSettings.KOMPOS_TRACING) {
       return new SMedeorPromise(owner, haltOnResolver, haltOnResolution, section);
-    } else if (VmSettings.ACTOR_TRACING || VmSettings.REPLAY) {
-      return new STracingPromise(owner, haltOnResolver, haltOnResolution);
     } else {
       return new SPromise(owner, haltOnResolver, haltOnResolution);
     }
@@ -161,9 +159,6 @@ public class SPromise extends SObjectWithClass {
     if (isCompleted()) {
       remote.value = value;
       remote.resolutionState = resolutionState;
-      if (VmSettings.ACTOR_TRACING || VmSettings.REPLAY) {
-        ((STracingPromise) remote).resolvingActor = ((STracingPromise) this).resolvingActor;
-      }
     } else {
       addChainedPromise(remote);
     }
@@ -329,8 +324,9 @@ public class SPromise extends SObjectWithClass {
 
   }
 
-  public static final class SMedeorPromise extends STracingPromise {
+  public static final class SMedeorPromise extends SPromise {
     protected final long promiseId;
+    protected long       resolvingActor;
 
     protected SMedeorPromise(final Actor owner, final boolean haltOnResolver,
         final boolean haltOnResolution, final SourceSection section) {
@@ -338,6 +334,13 @@ public class SPromise extends SObjectWithClass {
       promiseId = TracingActivityThread.newEntityId();
       KomposTrace.passiveEntityCreation(
           PassiveEntityType.PROMISE, promiseId, section);
+    }
+
+    public long getResolvingActor() {
+      if (!VmSettings.TRACK_SNAPSHOT_ENTITIES) {
+        assert isCompleted();
+      }
+      return resolvingActor;
     }
 
     @Override
@@ -453,10 +456,7 @@ public class SPromise extends SObjectWithClass {
         final ValueProfile whenResolvedProfile) {
       assert !(result instanceof SPromise);
 
-      if (VmSettings.ACTOR_TRACING || VmSettings.REPLAY) {
-        ((STracingPromise) p).resolvingActor =
-            ((TracingActor) EventualMessage.getActorCurrentMessageIsExecutionOn()).getId();
-      } else if (VmSettings.KOMPOS_TRACING) {
+      if (VmSettings.KOMPOS_TRACING) {
         if (type == Resolution.SUCCESSFUL && p.resolutionState != Resolution.CHAINED) {
           KomposTrace.promiseResolution(p.getPromiseId(), result);
         } else if (type == Resolution.ERRONEOUS) {

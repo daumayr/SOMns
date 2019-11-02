@@ -43,7 +43,10 @@ public interface Activity {
   default ReplayRecord getNextReplayEvent() {
     Queue<ReplayRecord> q = getReplayEventBuffer();
     if (q.isEmpty()) {
-      getTraceParser().getMoreEventsForEntity(getId());
+      boolean more = getTraceParser().getMoreEventsForEntity(getId());
+      while (q.isEmpty() && more) {
+        more = getTraceParser().getMoreEventsForEntity(getId());
+      }
     }
 
     return q.remove();
@@ -67,7 +70,8 @@ public interface Activity {
    * Set the flag that indicates a breakpoint on joining activity.
    * Does nothing for non-tracing activities, i.e., when debugging is disabled.
    */
-  default void setStepToJoin(final boolean val) {}
+  default void setStepToJoin(final boolean val) {
+  }
 
   void setStepToNextTurn(boolean val);
 }
