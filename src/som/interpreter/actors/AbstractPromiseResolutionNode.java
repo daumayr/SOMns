@@ -18,6 +18,8 @@ import som.interpreter.nodes.nary.QuaternaryExpressionNode;
 import som.interpreter.nodes.nary.UnaryExpressionNode;
 import som.vm.VmSettings;
 import tools.concurrency.KomposTrace;
+import tools.replay.TraceRecord;
+import tools.replay.nodes.RecordEventNodes.RecordTwoEvent;
 
 
 @GenerateWrapper
@@ -27,11 +29,13 @@ public abstract class AbstractPromiseResolutionNode extends QuaternaryExpression
 
   @Child protected WrapReferenceNode   wrapper = WrapReferenceNodeGen.create();
   @Child protected UnaryExpressionNode haltNode;
+  @Child protected RecordTwoEvent      tracePromiseResolution;
 
   private final ValueProfile whenResolvedProfile = ValueProfile.createClassProfile();
 
   protected AbstractPromiseResolutionNode() {
     haltNode = insert(SuspendExecutionNodeGen.create(2, null));
+    tracePromiseResolution = new RecordTwoEvent(TraceRecord.PROMISE_RESOLUTION);
   }
 
   protected AbstractPromiseResolutionNode(final AbstractPromiseResolutionNode node) {
@@ -119,15 +123,16 @@ public abstract class AbstractPromiseResolutionNode extends QuaternaryExpression
     Actor current = EventualMessage.getActorCurrentMessageIsExecutionOn();
 
     resolve(type, wrapper, promise, result, current, actorPool, haltOnResolution,
-        whenResolvedProfile);
+        whenResolvedProfile, tracePromiseResolution);
   }
 
   public static void resolve(final Resolution type,
       final WrapReferenceNode wrapper, final SPromise promise,
       final Object result, final Actor current, final ForkJoinPool actorPool,
-      final boolean haltOnResolution, final ValueProfile whenResolvedProfile) {
+      final boolean haltOnResolution, final ValueProfile whenResolvedProfile,
+      final RecordTwoEvent record) {
     Object wrapped = wrapper.execute(result, promise.owner, current);
     SResolver.resolveAndTriggerListenersUnsynced(type, result, wrapped, promise,
-        current, actorPool, haltOnResolution, whenResolvedProfile);
+        current, actorPool, haltOnResolution, whenResolvedProfile, record);
   }
 }

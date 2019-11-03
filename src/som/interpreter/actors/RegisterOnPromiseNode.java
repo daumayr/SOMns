@@ -5,15 +5,21 @@ import java.util.concurrent.ForkJoinPool;
 import com.oracle.truffle.api.nodes.Node;
 
 import som.interpreter.actors.EventualMessage.PromiseMessage;
+import som.interpreter.actors.SPromise.STracingPromise;
+import som.vm.VmSettings;
+import tools.replay.TraceRecord;
+import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
 
 
 public abstract class RegisterOnPromiseNode {
 
   public static final class RegisterWhenResolved extends Node {
     @Child protected SchedulePromiseHandlerNode schedule;
+    @Child protected RecordOneEvent             promiseMsgSend;
 
     public RegisterWhenResolved(final ForkJoinPool actorPool) {
       schedule = SchedulePromiseHandlerNodeGen.create(actorPool);
+      promiseMsgSend = new RecordOneEvent(TraceRecord.PROMISE_MESSAGE);
     }
 
     public void register(final SPromise promise, final PromiseMessage msg,
@@ -33,6 +39,13 @@ public abstract class RegisterOnPromiseNode {
             // case are not correct
             return;
           }
+
+          if (VmSettings.ACTOR_TRACING) {
+            // This is whenResolved
+            promiseMsgSend.record(((STracingPromise) promise).version);
+            ((STracingPromise) promise).version++;
+          }
+
           promise.registerWhenResolvedUnsynced(msg);
           return;
         } else {
@@ -54,6 +67,8 @@ public abstract class RegisterOnPromiseNode {
         if (promise.getHaltOnResolution()) {
           msg.enableHaltOnReceive();
         }
+
+        // TODO check what this does
         schedule.execute(promise, msg, current);
       }
     }
@@ -61,9 +76,11 @@ public abstract class RegisterOnPromiseNode {
 
   public static final class RegisterOnError extends Node {
     @Child protected SchedulePromiseHandlerNode schedule;
+    @Child protected RecordOneEvent             promiseMsgSend;
 
     public RegisterOnError(final ForkJoinPool actorPool) {
       this.schedule = SchedulePromiseHandlerNodeGen.create(actorPool);
+      this.promiseMsgSend = new RecordOneEvent(TraceRecord.PROMISE_MESSAGE);
     }
 
     public void register(final SPromise promise, final PromiseMessage msg,
@@ -83,6 +100,13 @@ public abstract class RegisterOnPromiseNode {
             // case are not correct
             return;
           }
+
+          if (VmSettings.ACTOR_TRACING) {
+            // This is whenResolved
+            promiseMsgSend.record(((STracingPromise) promise).version);
+            ((STracingPromise) promise).version++;
+          }
+
           promise.registerOnErrorUnsynced(msg);
           return;
         } else {
