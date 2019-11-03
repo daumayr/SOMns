@@ -15,8 +15,8 @@ import som.vmobjects.SClass;
 import som.vmobjects.SObjectWithClass;
 import tools.concurrency.KomposTrace;
 import tools.concurrency.TracingActivityThread;
-import tools.concurrency.TracingActors.TracingActor;
 import tools.debugger.entities.PassiveEntityType;
+import tools.replay.nodes.RecordEventNodes.RecordTwoEvent;
 import tools.snapshot.nodes.PromiseSerializationNodesFactory.PromiseSerializationNodeFactory;
 import tools.snapshot.nodes.PromiseSerializationNodesFactory.ResolverSerializationNodeFactory;
 
@@ -33,6 +33,8 @@ public class SPromise extends SObjectWithClass {
       final SourceSection section) {
     if (VmSettings.KOMPOS_TRACING) {
       return new SMedeorPromise(owner, haltOnResolver, haltOnResolution, section);
+    } else if (VmSettings.ACTOR_TRACING) {
+      return new STracingPromise(owner, haltOnResolver, haltOnResolution);
     } else {
       return new SPromise(owner, haltOnResolver, haltOnResolution);
     }
@@ -311,17 +313,10 @@ public class SPromise extends SObjectWithClass {
     protected STracingPromise(final Actor owner, final boolean haltOnResolver,
         final boolean haltOnResolution) {
       super(owner, haltOnResolver, haltOnResolution);
+      version = 0;
     }
 
-    protected long resolvingActor;
-
-    public long getResolvingActor() {
-      if (!VmSettings.TRACK_SNAPSHOT_ENTITIES) {
-        assert isCompleted();
-      }
-      return resolvingActor;
-    }
-
+    protected long version;
   }
 
   public static final class SMedeorPromise extends SPromise {
@@ -407,7 +402,7 @@ public class SPromise extends SObjectWithClass {
     protected static void resolveChainedPromisesUnsync(final Resolution type,
         final SPromise promise, final Object result, final Actor current,
         final ForkJoinPool actorPool, final boolean haltOnResolution,
-        final ValueProfile whenResolvedProfile) {
+        final ValueProfile whenResolvedProfile, final RecordTwoEvent record) {
       // TODO: we should change the implementation of chained promises to
       // always move all the handlers to the other promise, then we
       // don't need to worry about traversing the chain, which can
@@ -419,9 +414,9 @@ public class SPromise extends SObjectWithClass {
         Object wrapped = chainedPromise.owner.wrapForUse(result, current, null);
         resolveAndTriggerListenersUnsynced(type, result, wrapped,
             chainedPromise, current, actorPool,
-            chainedPromise.haltOnResolution, whenResolvedProfile);
+            chainedPromise.haltOnResolution, whenResolvedProfile, record);
         resolveMoreChainedPromisesUnsynced(type, promise, result, current,
-            actorPool, haltOnResolution, whenResolvedProfile);
+            actorPool, haltOnResolution, whenResolvedProfile, record);
       }
     }
 
@@ -432,7 +427,7 @@ public class SPromise extends SObjectWithClass {
     private static void resolveMoreChainedPromisesUnsynced(final Resolution type,
         final SPromise promise, final Object result, final Actor current,
         final ForkJoinPool actorPool, final boolean haltOnResolution,
-        final ValueProfile whenResolvedProfile) {
+        final ValueProfile whenResolvedProfile, final RecordTwoEvent record) {
       if (promise.chainedPromiseExt != null) {
         ArrayList<SPromise> chainedPromiseExt = promise.chainedPromiseExt;
         promise.chainedPromiseExt = null;
@@ -440,7 +435,7 @@ public class SPromise extends SObjectWithClass {
         for (SPromise p : chainedPromiseExt) {
           Object wrapped = p.owner.wrapForUse(result, current, null);
           resolveAndTriggerListenersUnsynced(type, result, wrapped, p, current,
-              actorPool, haltOnResolution, whenResolvedProfile);
+              actorPool, haltOnResolution, whenResolvedProfile, record);
         }
       }
     }
@@ -453,7 +448,7 @@ public class SPromise extends SObjectWithClass {
     protected static void resolveAndTriggerListenersUnsynced(final Resolution type,
         final Object result, final Object wrapped, final SPromise p, final Actor current,
         final ForkJoinPool actorPool, final boolean haltOnResolution,
-        final ValueProfile whenResolvedProfile) {
+        final ValueProfile whenResolvedProfile, final RecordTwoEvent record) {
       assert !(result instanceof SPromise);
 
       if (VmSettings.KOMPOS_TRACING) {
@@ -483,6 +478,12 @@ public class SPromise extends SObjectWithClass {
           p.resolutionState = type;
         }
 
+        if (VmSettings.ACTOR_TRACING) {
+          record.record(0, ((STracingPromise) p).version);
+          // This should be the last event for the recorded promise -> no need to update
+          // version, or checkk in sync
+        }
+
         if (type == Resolution.SUCCESSFUL) {
           scheduleAllWhenResolvedUnsync(p, result, current, actorPool, haltOnResolution,
               whenResolvedProfile);
@@ -491,7 +492,7 @@ public class SPromise extends SObjectWithClass {
           scheduleAllOnErrorUnsync(p, result, current, actorPool, haltOnResolution);
         }
         resolveChainedPromisesUnsync(type, p, result, current, actorPool, haltOnResolution,
-            whenResolvedProfile);
+            whenResolvedProfile, record);
       }
     }
 
