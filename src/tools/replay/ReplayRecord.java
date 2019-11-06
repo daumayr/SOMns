@@ -2,12 +2,22 @@ package tools.replay;
 
 public class ReplayRecord {
   public static class NumberedPassiveRecord extends ReplayRecord {
-    public final long passiveEntityId;
-    public final long eventNo;
+    public final long        passiveEntityId;
+    public final long        eventNo;
+    public final TraceRecord type;
 
-    public NumberedPassiveRecord(final long passiveEntityId, final long eventNo) {
+    public NumberedPassiveRecord(final long passiveEntityId, final long eventNo,
+        final TraceRecord type) {
       this.passiveEntityId = passiveEntityId;
       this.eventNo = eventNo;
+      this.type = type;
+    }
+  }
+
+  public static class PromiseMessageRecord extends NumberedPassiveRecord {
+    public PromiseMessageRecord(final long passiveEntityId, final long eventNo,
+        final TraceRecord type) {
+      super(passiveEntityId, eventNo, type);
     }
   }
 

@@ -10,16 +10,13 @@ import java.util.function.BiConsumer;
 
 import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 
-import som.Output;
 import som.VM;
 import som.interpreter.actors.Actor;
 import som.interpreter.actors.EventualMessage;
-import som.vm.Activity;
 import som.vm.VmSettings;
 import tools.debugger.WebDebugger;
 import tools.replay.PassiveEntityWithEvents;
 import tools.replay.ReplayRecord;
-import tools.replay.ReplayRecord.NumberedPassiveRecord;
 import tools.replay.TraceParser;
 import tools.snapshot.SnapshotRecord;
 import tools.snapshot.deserialization.DeserializationBuffer;
@@ -227,17 +224,6 @@ public class TracingActors {
       } else {
         appendToMailbox(msg);
       }
-
-      Activity reader = TracingActivityThread.currentThread().getActivity();
-      NumberedPassiveRecord npr = (NumberedPassiveRecord) reader.getNextReplayEvent();
-
-      if (npr == null) {
-        Output.println("Discarding message in " + reader.getId());
-        return;
-      }
-
-      assert npr.passiveEntityId == this.activityId;
-      msg.setReplayVersion(npr.eventNo);
 
       // actor remains dormant until the expected message arrives
       if ((!this.isExecuting) && this.replayCanProcess(msg)) {
