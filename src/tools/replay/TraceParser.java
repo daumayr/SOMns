@@ -22,6 +22,7 @@ import tools.replay.ReplayData.Subtrace;
 import tools.replay.ReplayRecord.AwaitTimeoutRecord;
 import tools.replay.ReplayRecord.IsLockedRecord;
 import tools.replay.ReplayRecord.NumberedPassiveRecord;
+import tools.replay.ReplayRecord.PromiseMessageRecord;
 import tools.replay.nodes.RecordEventNodes;
 
 
@@ -141,7 +142,7 @@ public final class TraceParser implements Closeable {
   }
 
   private static TraceRecord[] createParseTable() {
-    TraceRecord[] result = new TraceRecord[19];
+    TraceRecord[] result = new TraceRecord[20];
 
     result[TraceRecord.ACTOR_CREATION.value] = TraceRecord.ACTOR_CREATION;
     result[TraceRecord.ACTOR_CONTEXT.value] = TraceRecord.ACTOR_CONTEXT;
@@ -167,6 +168,7 @@ public final class TraceParser implements Closeable {
     result[TraceRecord.CONDITION_AWAITTIMEOUT.value] = TraceRecord.CONDITION_AWAITTIMEOUT;
     result[TraceRecord.CONDITION_WAKEUP.value] = TraceRecord.CONDITION_WAKEUP;
     result[TraceRecord.CONDITION_SIGNALALL.value] = TraceRecord.CONDITION_SIGNALALL;
+    result[TraceRecord.PROMISE_RESOLUTION.value] = TraceRecord.PROMISE_RESOLUTION;
 
     return result;
   }
@@ -263,9 +265,9 @@ public final class TraceParser implements Closeable {
     final int start = b.position();
     final byte type = b.get();
     final int numbytes = Long.BYTES;
-    boolean external = (type & TraceRecord.EXTERNAL_BIT) != 0;
+    // boolean external = (type & TraceRecord.EXTERNAL_BIT) != 0;
 
-    TraceRecord recordType = parseTable[type & (TraceRecord.EXTERNAL_BIT - 1)];
+    TraceRecord recordType = parseTable[type];// & (TraceRecord.EXTERNAL_BIT - 1)];
 
     if (!scanning & first) {
       assert recordType == TraceRecord.ACTOR_CONTEXT
@@ -362,6 +364,17 @@ public final class TraceParser implements Closeable {
         }
         assert b.position() == start + RecordEventNodes.ONE_EVENT_SIZE;
         break;
+
+      case PROMISE_MESSAGE:
+        long passiveEntityId1 = b.getLong();
+        long eventNo1 = b.getLong();
+        if (!scanning) {
+          ctx.currentEntity.addReplayEvent(
+              new PromiseMessageRecord(passiveEntityId1, eventNo1, recordType));
+        }
+        assert b.position() == start + RecordEventNodes.TWO_EVENT_SIZE;
+        break;
+      case PROMISE_RESOLUTION:
       case MESSAGE:
       case CHANNEL_READ:
       case CHANNEL_WRITE:
@@ -374,7 +387,8 @@ public final class TraceParser implements Closeable {
         long eventNo = b.getLong();
         if (!scanning) {
           ctx.currentEntity.addReplayEvent(
-              new NumberedPassiveRecord(passiveEntityId, eventNo));
+              new NumberedPassiveRecord(passiveEntityId, eventNo, recordType));
+
         }
         assert b.position() == start + RecordEventNodes.TWO_EVENT_SIZE;
         break;
