@@ -52,6 +52,18 @@ public interface Activity {
     return q.remove();
   }
 
+  default ReplayRecord peekNextReplayEvent() {
+    Queue<ReplayRecord> q = getReplayEventBuffer();
+    if (q.isEmpty()) {
+      boolean more = getTraceParser().getMoreEventsForEntity(getId());
+      while (q.isEmpty() && more) {
+        more = getTraceParser().getMoreEventsForEntity(getId());
+      }
+    }
+
+    return q.peek();
+  }
+
   default Queue<ReplayRecord> getReplayEventBuffer() {
     return null;
   }

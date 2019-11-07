@@ -30,7 +30,9 @@ import tools.concurrency.TracingActors.ReplayActor;
 import tools.concurrency.TracingActors.TracingActor;
 import tools.debugger.WebDebugger;
 import tools.debugger.entities.ActivityType;
+import tools.replay.TraceRecord;
 import tools.replay.actors.ActorExecutionTrace;
+import tools.replay.nodes.RecordEventNodes.RecordTwoEvent;
 import tools.replay.nodes.TraceContextNode;
 import tools.replay.nodes.TraceContextNodeGen;
 import tools.snapshot.SnapshotBuffer;
@@ -133,7 +135,9 @@ public class Actor implements Activity {
       if (orgProm.getOwner() == this) {
         return orgProm;
       }
-      return orgProm.getChainedPromiseFor(this);
+
+      return orgProm.getChainedPromiseFor(this,
+          ((ExecutorRootNode) this.executorRoot.getRootNode()).recordPromiseChaining);
     } else if (!IsValue.isObjectValue(o)) {
       // Corresponds to TransferObject.isTransferObject()
       if ((o instanceof SObject && ((SObject) o).getSOMClass().isTransferObject())) {
@@ -202,8 +206,14 @@ public class Actor implements Activity {
 
   public static final class ExecutorRootNode extends RootNode {
 
+    @Child protected RecordTwoEvent recordPromiseChaining;
+
     private ExecutorRootNode(final SomLanguage language) {
       super(language);
+
+      if (VmSettings.ACTOR_TRACING) {
+        this.recordPromiseChaining = new RecordTwoEvent(TraceRecord.PROMISE_CHAINED);
+      }
     }
 
     @Override
@@ -253,7 +263,7 @@ public class Actor implements Activity {
       t.currentlyExecutingActor = actor;
 
       if (VmSettings.ACTOR_TRACING) {
-        ActorExecutionTrace.recordActivityContext((TracingActor) actor, tracer);
+        ActorExecutionTrace.recordActivityContext(actor, tracer);
       } else if (VmSettings.KOMPOS_TRACING) {
         KomposTrace.currentActivity(actor);
       }

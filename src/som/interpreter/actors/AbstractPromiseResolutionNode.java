@@ -11,13 +11,18 @@ import com.oracle.truffle.api.profiles.ValueProfile;
 import com.oracle.truffle.api.source.SourceSection;
 
 import bd.primitives.nodes.WithContext;
+import som.Output;
 import som.VM;
 import som.interpreter.actors.SPromise.Resolution;
+import som.interpreter.actors.SPromise.SReplayPromise;
 import som.interpreter.actors.SPromise.SResolver;
+import som.interpreter.actors.SPromise.STracingPromise;
 import som.interpreter.nodes.nary.QuaternaryExpressionNode;
 import som.interpreter.nodes.nary.UnaryExpressionNode;
 import som.vm.VmSettings;
 import tools.concurrency.KomposTrace;
+import tools.concurrency.TracingActivityThread;
+import tools.replay.ReplayRecord.NumberedPassiveRecord;
 import tools.replay.TraceRecord;
 import tools.replay.nodes.RecordEventNodes.RecordTwoEvent;
 
@@ -30,12 +35,17 @@ public abstract class AbstractPromiseResolutionNode extends QuaternaryExpression
   @Child protected WrapReferenceNode   wrapper = WrapReferenceNodeGen.create();
   @Child protected UnaryExpressionNode haltNode;
   @Child protected RecordTwoEvent      tracePromiseResolution;
+  @Child protected RecordTwoEvent      tracePromiseChaining;
 
   private final ValueProfile whenResolvedProfile = ValueProfile.createClassProfile();
 
   protected AbstractPromiseResolutionNode() {
     haltNode = insert(SuspendExecutionNodeGen.create(2, null));
-    tracePromiseResolution = new RecordTwoEvent(TraceRecord.PROMISE_RESOLUTION);
+
+    if (VmSettings.ACTOR_TRACING) {
+      tracePromiseResolution = new RecordTwoEvent(TraceRecord.PROMISE_RESOLUTION);
+      tracePromiseChaining = new RecordTwoEvent(TraceRecord.PROMISE_CHAINED);
+    }
   }
 
   protected AbstractPromiseResolutionNode(final AbstractPromiseResolutionNode node) {
@@ -102,6 +112,18 @@ public abstract class AbstractPromiseResolutionNode extends QuaternaryExpression
 
     synchronized (promiseValue) {
       Resolution state = promiseValue.getResolutionStateUnsync();
+
+      if (VmSettings.REPLAY) {
+        NumberedPassiveRecord npr =
+            (NumberedPassiveRecord) TracingActivityThread.currentThread().getActivity()
+                                                         .peekNextReplayEvent();
+        if (npr.type == TraceRecord.PROMISE_CHAINED) {
+          ((SReplayPromise) promiseValue).registerChainedPromiseReplay(
+              (SReplayPromise) promiseToBeResolved);
+          return;
+        }
+      }
+
       if (SPromise.isCompleted(state)) {
         resolvePromise(state, resolver, promiseValue.getValueUnsync(),
             haltOnResolution);
@@ -109,6 +131,23 @@ public abstract class AbstractPromiseResolutionNode extends QuaternaryExpression
         synchronized (promiseToBeResolved) { // TODO: is this really deadlock free?
           if (haltOnResolution || promiseValue.getHaltOnResolution()) {
             promiseToBeResolved.enableHaltOnResolution();
+          }
+
+          if (VmSettings.REPLAY) {
+            NumberedPassiveRecord npr =
+                (NumberedPassiveRecord) TracingActivityThread.currentThread().getActivity()
+                                                             .peekNextReplayEvent();
+            assert npr.type == TraceRecord.PROMISE_RESOLUTION;
+            TracingActivityThread.currentThread().getActivity().getNextReplayEvent();
+            TracingActivityThread.currentThread().getActivity().getNextReplayEvent();
+            ((SReplayPromise) promiseToBeResolved).untrackedResolution = true;
+            Output.println("CONSUMED EVENTS");
+            // consume event, not going to happen now
+          }
+
+          if (VmSettings.ACTOR_TRACING) {
+            tracePromiseChaining.record(0, ((STracingPromise) promiseValue).version);
+            ((STracingPromise) promiseValue).version++;
           }
           promiseValue.addChainedPromise(promiseToBeResolved);
         }

@@ -14,13 +14,6 @@ public class ReplayRecord {
     }
   }
 
-  public static class PromiseMessageRecord extends NumberedPassiveRecord {
-    public PromiseMessageRecord(final long passiveEntityId, final long eventNo,
-        final TraceRecord type) {
-      super(passiveEntityId, eventNo, type);
-    }
-  }
-
   public static class IsLockedRecord extends ReplayRecord {
     public final long    lockId;
     public final boolean isLocked;

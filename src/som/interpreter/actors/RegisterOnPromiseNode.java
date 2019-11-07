@@ -9,7 +9,6 @@ import som.interpreter.actors.SPromise.SReplayPromise;
 import som.interpreter.actors.SPromise.STracingPromise;
 import som.vm.VmSettings;
 import tools.replay.ReplayRecord.NumberedPassiveRecord;
-import tools.replay.ReplayRecord.PromiseMessageRecord;
 import tools.replay.TraceRecord;
 import tools.replay.nodes.RecordEventNodes.RecordTwoEvent;
 
@@ -42,7 +41,7 @@ public abstract class RegisterOnPromiseNode {
               || npr.type == TraceRecord.MESSAGE : "was: " + npr.type.name();
           msg.messageId = npr.eventNo;
 
-          if (npr instanceof PromiseMessageRecord) {
+          if (npr.type == TraceRecord.PROMISE_MESSAGE) {
             ((SReplayPromise) promise).registerOnResolvedReplay(msg);
             return;
           }
@@ -114,7 +113,7 @@ public abstract class RegisterOnPromiseNode {
           assert npr.type == TraceRecord.PROMISE_MESSAGE || npr.type == TraceRecord.MESSAGE;
           msg.messageId = npr.eventNo;
 
-          if (npr instanceof PromiseMessageRecord) {
+          if (npr.type == TraceRecord.PROMISE_MESSAGE) {
             ((SReplayPromise) promise).registerOnErrorReplay(msg);
             return;
           }
