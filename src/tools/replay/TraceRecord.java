@@ -23,7 +23,8 @@ public enum TraceRecord {
   LOCK_CREATE(16),
   CONDITION_CREATE(17),
   CONDITION_AWAITTIMEOUT_RES(18),
-  PROMISE_RESOLUTION(19);
+  PROMISE_RESOLUTION(19),
+  PROMISE_CHAINED(20);
 
   public final byte value;
 
