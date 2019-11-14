@@ -142,7 +142,7 @@ public class TracingActors {
   public static final class ReplayActor extends TracingActor
       implements PassiveEntityWithEvents {
     protected int                               children;
-    private final Queue<ReplayRecord>           replayEvents;
+    private final LinkedList<ReplayRecord>      replayEvents;
     protected final LinkedList<EventualMessage> leftovers = new LinkedList<>();
     private static Map<Long, ReplayActor>       actorList;
     private BiConsumer<Short, Integer>          dataSource;
@@ -173,7 +173,7 @@ public class TracingActors {
     }
 
     @Override
-    public Queue<ReplayRecord> getReplayEventBuffer() {
+    public LinkedList<ReplayRecord> getReplayEventBuffer() {
       return this.replayEvents;
     }
 

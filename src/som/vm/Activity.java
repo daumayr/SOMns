@@ -1,5 +1,6 @@
 package som.vm;
 
+import java.util.LinkedList;
 import java.util.Queue;
 
 import tools.debugger.entities.ActivityType;
@@ -64,7 +65,7 @@ public interface Activity {
     return q.peek();
   }
 
-  default Queue<ReplayRecord> getReplayEventBuffer() {
+  default LinkedList<ReplayRecord> getReplayEventBuffer() {
     return null;
   }
 

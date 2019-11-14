@@ -2,6 +2,9 @@ package som.interpreter.actors;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.Map.Entry;
 import java.util.PriorityQueue;
 import java.util.concurrent.ForkJoinPool;
 
@@ -10,7 +13,6 @@ import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 import com.oracle.truffle.api.profiles.ValueProfile;
 import com.oracle.truffle.api.source.SourceSection;
 
-import som.Output;
 import som.interpreter.SomLanguage;
 import som.interpreter.actors.EventualMessage.PromiseMessage;
 import som.interpreter.objectstorage.ClassFactory;
@@ -22,6 +24,7 @@ import tools.concurrency.KomposTrace;
 import tools.concurrency.TracingActivityThread;
 import tools.debugger.entities.PassiveEntityType;
 import tools.replay.PassiveEntityWithEvents;
+import tools.replay.ReplayRecord;
 import tools.replay.ReplayRecord.NumberedPassiveRecord;
 import tools.replay.TraceRecord;
 import tools.replay.nodes.RecordEventNodes.RecordTwoEvent;
@@ -250,8 +253,6 @@ public class SPromise extends SObjectWithClass {
 
   public final synchronized void addChainedPromise(final SPromise remote) {
     assert remote != null;
-    Output.println("Chain to " + remote.hashCode());
-    (new Throwable()).printStackTrace();
 
     remote.resolutionState = Resolution.CHAINED;
     if (chainedPromise == null) {
@@ -359,99 +360,135 @@ public class SPromise extends SObjectWithClass {
   }
 
   public static class SReplayPromise extends STracingPromise {
-    PriorityQueue<PromiseMessage>    onResolvedReplay;
-    PriorityQueue<PromiseMessage>    onErrorReplay;
-    PriorityQueue<SReplayPromise>    replayChainedPromises;
-    boolean                          delayed             = false;
-    long                             resolutionversion;
-    ArrayList<NumberedPassiveRecord> consumedEvents;
-    boolean                          haltOnResolution;
-    Actor                            resolver;
-    Resolution                       type;
-    long                             priority;
-    ValueProfile                     whenResolvedProfile;
-    boolean                          untrackedResolution = false;
+    PriorityQueue<PromiseMessage>                     onResolvedReplay;
+    PriorityQueue<PromiseMessage>                     onErrorReplay;
+    PriorityQueue<SReplayPromise>                     replayChainedPromises;
+    HashMap<PromiseMessage, LinkedList<ReplayRecord>> delayedMessages;
+    boolean                                           delayed             = false;
+    long                                              resolutionversion;
+    boolean                                           haltOnResolution;
+    Actor                                             resolver;
+    Resolution                                        type;
+    long                                              priority;
+    ValueProfile                                      whenResolvedProfile;
+    boolean                                           untrackedResolution = false;
+    LinkedList<ReplayRecord>                          eventsForDelayedResolution;
 
     protected SReplayPromise(final Actor owner, final boolean haltOnResolver,
         final boolean haltOnResolution) {
       super(owner, haltOnResolver, haltOnResolution);
     }
 
+    @TruffleBoundary
     public void handleReplayResolution(final boolean haltOnResolution, final Actor resolver,
         final Resolution type, final ValueProfile whenResolvedProfile) {
+
+      Activity current = TracingActivityThread.currentThread().getActivity();
       if (untrackedResolution) {
+        assert this.onResolvedReplay == null;
+        assert this.onErrorReplay == null;
+        assert this.replayChainedPromises == null;
+        assert this.delayedMessages == null;
+        assert eventsForDelayedResolution == null;
         return;
       }
 
-      Activity current = TracingActivityThread.currentThread().getActivity();
+      assert this.eventsForDelayedResolution == null;
 
-      // Output.println("resolution in " + current.getId() + " " + this.hashCode());
       NumberedPassiveRecord npr =
-          (NumberedPassiveRecord) current.getNextReplayEvent();
+          (NumberedPassiveRecord) current.peekNextReplayEvent();
       assert npr != null;
       assert npr.type == TraceRecord.PROMISE_RESOLUTION : "was " + npr.type + " in "
           + current.getId() + " for " + this.hashCode();
 
       if (npr.eventNo != this.version) {
-        // delay
-        Output.println("Delayed resolution in " + current.getId() + " v" + this.version);
-
+        // delay resolution
         this.delayed = true;
         this.resolutionversion = npr.eventNo;
         this.haltOnResolution = haltOnResolution;
         this.resolver = resolver;
         this.whenResolvedProfile = whenResolvedProfile;
+        this.type = type;
 
-        npr = (NumberedPassiveRecord) current.getNextReplayEvent();
-        assert npr.type == TraceRecord.PROMISE_RESOLUTION;
-
-        int n = (int) npr.eventNo;
-        consumedEvents = new ArrayList<>(n);
-        for (int i = 0; i < n; i++) {
-          npr = (NumberedPassiveRecord) current.getNextReplayEvent();
-          assert npr.type == TraceRecord.MESSAGE;
-          consumedEvents.add(npr);
-        }
-
+        consumeEventsForDelayedResolution();
         return;
       }
-
-      Output.println("Resolving " + this.hashCode() + " v" + this.version);
 
       // consume event
       npr = (NumberedPassiveRecord) current.getNextReplayEvent();
       assert npr.type == TraceRecord.PROMISE_RESOLUTION;
 
-      if (type == Resolution.SUCCESSFUL && onResolvedReplay != null) {
-        while (!onResolvedReplay.isEmpty()) {
-          PromiseMessage pm = onResolvedReplay.poll();
+      PriorityQueue<PromiseMessage> todo = null;
+
+      if (type == Resolution.SUCCESSFUL) {
+        todo = onResolvedReplay;
+      } else if (type == Resolution.ERRONEOUS) {
+        todo = onErrorReplay;
+      }
+
+      if (todo != null) {
+        while (!todo.isEmpty()) {
+          PromiseMessage pm = todo.poll();
+          pm.resolve(this.value, owner, (Actor) current);
+
           npr = (NumberedPassiveRecord) current.getNextReplayEvent();
-          assert npr.type == TraceRecord.MESSAGE;
+          assert npr.type == TraceRecord.MESSAGE : "was " + npr.type + " in "
+              + current.getId();
           pm.setReplayVersion(npr.eventNo);
-          this.registerWhenResolvedUnsynced(pm);
-        }
-      } else if (type == Resolution.ERRONEOUS && onErrorReplay != null) {
-        while (!onErrorReplay.isEmpty()) {
-          PromiseMessage pm = onErrorReplay.poll();
-          npr = (NumberedPassiveRecord) current.getNextReplayEvent();
-          assert npr.type == TraceRecord.MESSAGE;
-          pm.setReplayVersion(npr.eventNo);
-          this.registerOnErrorUnsynced(pm);
+
+          if (type == Resolution.SUCCESSFUL) {
+            this.registerWhenResolvedUnsynced(pm);
+          } else if (type == Resolution.ERRONEOUS) {
+            this.registerOnErrorUnsynced(pm);
+          }
         }
       }
 
-      if (replayChainedPromises != null) {
-        int n = replayChainedPromises.size();
-        for (int i = 0; i < n; i++) {
-          SReplayPromise rp = replayChainedPromises.remove();
-          Object wrapped = rp.owner.wrapForUse(value, resolver, null);
+      resolveChainedPromisesReplay(type, whenResolvedProfile);
 
-          Output.println("untracked promise? " + rp.untrackedResolution);
-          SResolver.resolveAndTriggerListenersUnsynced(type, value, wrapped, rp, resolver,
-              SomLanguage.getCurrent().getVM().getActorPool(), haltOnResolution,
-              whenResolvedProfile, null);
+      sendDelayedMessages();
+
+      npr = (NumberedPassiveRecord) current.getNextReplayEvent();
+      assert npr != null;
+      assert npr.type == TraceRecord.PROMISE_RESOLUTION_END : "was " + npr.type + " in "
+          + current.getId() + " for " + this.hashCode();
+    }
+
+    /**
+     * consumes all events related to the resolution of this promise from the current
+     * activities queue, and stores them inside the promise so they can be used in the delayed
+     * resolution. This includes "nested" resolutions of chained Promises with unlimited depth.
+     */
+    @TruffleBoundary
+    public void consumeEventsForDelayedResolution() {
+      assert eventsForDelayedResolution == null;
+      eventsForDelayedResolution = new LinkedList<ReplayRecord>();
+      Activity current = TracingActivityThread.currentThread().getActivity();
+      NumberedPassiveRecord npr;
+
+      int open = 0;
+
+      do {
+        npr = (NumberedPassiveRecord) current.getNextReplayEvent();
+        switch (npr.type) {
+          case MESSAGE:
+          case PROMISE_CHAINED:
+            assert open > 0;
+            break;
+          case PROMISE_RESOLUTION:
+            open++;
+            break;
+          case PROMISE_RESOLUTION_END:
+            assert open > 0;
+            open--;
+            break;
+          default:
+            assert false : " unexpected event: " + npr.type;
         }
-      }
+        eventsForDelayedResolution.add(npr);
+      } while (open > 0);
+      assert this.eventsForDelayedResolution.size() >= 2;
+
     }
 
     /**
@@ -461,46 +498,77 @@ public class SPromise extends SObjectWithClass {
      * the message objects.
      */
 
-    private void checkForDelayedResolution() {
+    @TruffleBoundary
+    private void tryPerformDelayedResolution() {
       if (delayed && resolutionversion == version) {
-        // perform
+        Activity current = TracingActivityThread.currentThread().getActivity();
+        // restore events needed for resolution
 
-        Output.println("Delayed resolution performed for " + this.hashCode());
-        if (type == Resolution.ERRONEOUS && onErrorReplay != null) {
-          assert consumedEvents.size() == onErrorReplay.size();
-          for (int i = 0; i < consumedEvents.size(); i++) {
-            PromiseMessage pm = onErrorReplay.remove();
-            pm.setReplayVersion(consumedEvents.get(i).eventNo);
-            this.scheduleCallbacksOnResolution(this.value, pm, resolver,
-                SomLanguage.getCurrent().getVM().getActorPool(),
-                haltOnResolution);
+        assert this.eventsForDelayedResolution != null;
+        assert this.eventsForDelayedResolution.size() >= 2 : ""
+            + this.eventsForDelayedResolution.size();
+        current.getReplayEventBuffer().addAll(0, this.eventsForDelayedResolution);
+        NumberedPassiveRecord npr = (NumberedPassiveRecord) current.getNextReplayEvent();
+        assert npr.type == TraceRecord.PROMISE_RESOLUTION : " was " + npr.type;
 
-          }
-        } else if (type == Resolution.SUCCESSFUL && onResolvedReplay != null) {
-          assert consumedEvents.size() == onResolvedReplay.size();
-          for (int i = 0; i < consumedEvents.size(); i++) {
-            PromiseMessage pm = onResolvedReplay.remove();
-            pm.setReplayVersion(consumedEvents.get(i).eventNo);
+        PriorityQueue<PromiseMessage> toSend = null;
+
+        assert type != null;
+        if (type == Resolution.ERRONEOUS) {
+          toSend = onErrorReplay;
+        } else if (type == Resolution.SUCCESSFUL) {
+          toSend = onResolvedReplay;
+        }
+
+        if (toSend != null) {
+          while (!toSend.isEmpty()) {
+            PromiseMessage pm = toSend.remove();
+            pm.resolve(this.value, owner, resolver);
+
+            npr = (NumberedPassiveRecord) current.getNextReplayEvent();
+            assert npr.type == TraceRecord.MESSAGE;
+            pm.setReplayVersion(npr.eventNo);
             this.scheduleCallbacksOnResolution(this.value, pm, resolver,
                 SomLanguage.getCurrent().getVM().getActorPool(),
                 haltOnResolution);
           }
         }
 
-        int n = replayChainedPromises.size();
-        for (int i = 0; i < n; i++) {
-          SReplayPromise rp = replayChainedPromises.remove();
-          Object wrapped = rp.owner.wrapForUse(value, resolver, null);
+        resolveChainedPromisesReplay(this.type, this.whenResolvedProfile);
+        sendDelayedMessages();
 
-          SResolver.resolveAndTriggerListenersUnsynced(type, value, wrapped, rp, resolver,
-              SomLanguage.getCurrent().getVM().getActorPool(), haltOnResolution,
-              whenResolvedProfile, null);
-        }
+        npr = (NumberedPassiveRecord) current.getNextReplayEvent();
+        assert npr.type == TraceRecord.PROMISE_RESOLUTION_END : "was " + npr.type + " in "
+            + current.getId();
 
         this.onResolvedReplay = null;
         this.onErrorReplay = null;
         this.replayChainedPromises = null;
-        this.consumedEvents = null;
+        this.eventsForDelayedResolution = null;
+      }
+    }
+
+    @TruffleBoundary
+    public void registerPromiseMessageWithChainingEvents(final PromiseMessage msg,
+        final LinkedList<ReplayRecord> events) {
+      if (delayedMessages == null) {
+        delayedMessages = new HashMap<>();
+      }
+
+      delayedMessages.put(msg, events);
+    }
+
+    @TruffleBoundary
+    private void sendDelayedMessages() {
+      if (delayedMessages != null) {
+        Activity current = TracingActivityThread.currentThread().getActivity();
+        for (Entry<PromiseMessage, LinkedList<ReplayRecord>> e : delayedMessages.entrySet()) {
+          PromiseMessage pm = e.getKey();
+          LinkedList<ReplayRecord> events = e.getValue();
+          current.getReplayEventBuffer().addAll(0, events);
+          this.scheduleCallbacksOnResolution(value, pm, (Actor) current,
+              SomLanguage.getCurrent().getVM().getActorPool(), haltOnResolution);
+        }
       }
     }
 
@@ -517,7 +585,7 @@ public class SPromise extends SObjectWithClass {
       this.onErrorReplay.add(msg);
       this.version++;
 
-      checkForDelayedResolution();
+      tryPerformDelayedResolution();
     }
 
     /**
@@ -538,19 +606,15 @@ public class SPromise extends SObjectWithClass {
       this.onResolvedReplay.add(msg);
       this.version++;
 
-      checkForDelayedResolution();
+      tryPerformDelayedResolution();
     }
 
     public void registerChainedPromiseReplay(final SReplayPromise prom) {
       NumberedPassiveRecord npr =
           (NumberedPassiveRecord) TracingActivityThread.currentThread().getActivity()
                                                        .getNextReplayEvent();
-      Output.println(
-          "register on " + this.getResolutionStateUnsync() + " " + this.untrackedResolution);
       assert npr.type == TraceRecord.PROMISE_CHAINED;
       prom.priority = npr.eventNo;
-
-      Output.println("Chain " + prom.hashCode() + " to " + this.hashCode());
 
       if (this.replayChainedPromises == null) {
         this.replayChainedPromises = new PriorityQueue<>(new Comparator<SReplayPromise>() {
@@ -564,7 +628,22 @@ public class SPromise extends SObjectWithClass {
       this.replayChainedPromises.add(prom);
       this.version++;
 
-      checkForDelayedResolution();
+      tryPerformDelayedResolution();
+    }
+
+    private void resolveChainedPromisesReplay(final Resolution type,
+        final ValueProfile whenResolvedProfile) {
+
+      if (replayChainedPromises != null) {
+        while (!replayChainedPromises.isEmpty()) {
+          SReplayPromise rp = replayChainedPromises.remove();
+          Object wrapped = rp.owner.wrapForUse(value, resolver, null);
+
+          SResolver.resolveAndTriggerListenersUnsynced(type, value, wrapped, rp, resolver,
+              SomLanguage.getCurrent().getVM().getActorPool(), haltOnResolution,
+              whenResolvedProfile, null, null);
+        }
+      }
     }
   }
 
@@ -651,7 +730,8 @@ public class SPromise extends SObjectWithClass {
     protected static void resolveChainedPromisesUnsync(final Resolution type,
         final SPromise promise, final Object result, final Actor current,
         final ForkJoinPool actorPool, final boolean haltOnResolution,
-        final ValueProfile whenResolvedProfile, final RecordTwoEvent record) {
+        final ValueProfile whenResolvedProfile, final RecordTwoEvent record,
+        final RecordTwoEvent recordStop) {
       // TODO: we should change the implementation of chained promises to
       // always move all the handlers to the other promise, then we
       // don't need to worry about traversing the chain, which can
@@ -663,9 +743,9 @@ public class SPromise extends SObjectWithClass {
         Object wrapped = chainedPromise.owner.wrapForUse(result, current, null);
         resolveAndTriggerListenersUnsynced(type, result, wrapped,
             chainedPromise, current, actorPool,
-            chainedPromise.haltOnResolution, whenResolvedProfile, record);
+            chainedPromise.haltOnResolution, whenResolvedProfile, record, recordStop);
         resolveMoreChainedPromisesUnsynced(type, promise, result, current,
-            actorPool, haltOnResolution, whenResolvedProfile, record);
+            actorPool, haltOnResolution, whenResolvedProfile, record, recordStop);
       }
     }
 
@@ -676,7 +756,8 @@ public class SPromise extends SObjectWithClass {
     private static void resolveMoreChainedPromisesUnsynced(final Resolution type,
         final SPromise promise, final Object result, final Actor current,
         final ForkJoinPool actorPool, final boolean haltOnResolution,
-        final ValueProfile whenResolvedProfile, final RecordTwoEvent record) {
+        final ValueProfile whenResolvedProfile, final RecordTwoEvent record,
+        final RecordTwoEvent recordStop) {
       if (promise.chainedPromiseExt != null) {
         ArrayList<SPromise> chainedPromiseExt = promise.chainedPromiseExt;
         promise.chainedPromiseExt = null;
@@ -684,7 +765,7 @@ public class SPromise extends SObjectWithClass {
         for (SPromise p : chainedPromiseExt) {
           Object wrapped = p.owner.wrapForUse(result, current, null);
           resolveAndTriggerListenersUnsynced(type, result, wrapped, p, current,
-              actorPool, haltOnResolution, whenResolvedProfile, record);
+              actorPool, haltOnResolution, whenResolvedProfile, record, recordStop);
         }
       }
     }
@@ -697,7 +778,8 @@ public class SPromise extends SObjectWithClass {
     protected static void resolveAndTriggerListenersUnsynced(final Resolution type,
         final Object result, final Object wrapped, final SPromise p, final Actor current,
         final ForkJoinPool actorPool, final boolean haltOnResolution,
-        final ValueProfile whenResolvedProfile, final RecordTwoEvent record) {
+        final ValueProfile whenResolvedProfile, final RecordTwoEvent record,
+        final RecordTwoEvent recordStop) {
       assert !(result instanceof SPromise);
 
       if (VmSettings.KOMPOS_TRACING) {
@@ -725,50 +807,30 @@ public class SPromise extends SObjectWithClass {
           // TODO use a special constructor to create chained promises???
           p.value = wrapped;
           p.resolutionState = type;
+
+          if (VmSettings.REPLAY) {
+            ((SReplayPromise) p).handleReplayResolution(haltOnResolution, current, type,
+                whenResolvedProfile);
+          }
         }
 
         if (VmSettings.ACTOR_TRACING) {
           record.record(0, ((STracingPromise) p).version);
-          // This should be the last event for the recorded promise -> no need to update
-          // version, or checkk in sync
-        }
-
-        if (VmSettings.REPLAY) {
-          // TODO don't call this when no events are supposed to happen, i.e. chained
-          // resolution that wasnt part of original
-          ((SReplayPromise) p).handleReplayResolution(haltOnResolution, current, type,
-              whenResolvedProfile);
         }
 
         if (type == Resolution.SUCCESSFUL) {
-          if (VmSettings.ACTOR_TRACING) {
-            int i = 0;
-            if (p.whenResolved != null) {
-              i = 1;
-              if (p.whenResolvedExt != null) {
-                i += p.whenResolvedExt.size();
-              }
-            }
-            record.record(0, i);
-          }
           scheduleAllWhenResolvedUnsync(p, result, current, actorPool, haltOnResolution,
               whenResolvedProfile);
         } else {
           assert type == Resolution.ERRONEOUS;
-          if (VmSettings.ACTOR_TRACING) {
-            int i = 0;
-            if (p.onError != null) {
-              i = 1;
-              if (p.onErrorExt != null) {
-                i += p.whenResolvedExt.size();
-              }
-            }
-            record.record(0, i);
-          }
           scheduleAllOnErrorUnsync(p, result, current, actorPool, haltOnResolution);
         }
         resolveChainedPromisesUnsync(type, p, result, current, actorPool, haltOnResolution,
-            whenResolvedProfile, record);
+            whenResolvedProfile, record, recordStop);
+
+        if (VmSettings.ACTOR_TRACING) {
+          recordStop.record(0, ((STracingPromise) p).version);
+        }
       }
     }
 
