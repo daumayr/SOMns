@@ -11,7 +11,6 @@ import com.oracle.truffle.api.profiles.ValueProfile;
 import com.oracle.truffle.api.source.SourceSection;
 
 import bd.primitives.nodes.WithContext;
-import som.Output;
 import som.VM;
 import som.interpreter.actors.SPromise.Resolution;
 import som.interpreter.actors.SPromise.SReplayPromise;
@@ -35,6 +34,7 @@ public abstract class AbstractPromiseResolutionNode extends QuaternaryExpression
   @Child protected WrapReferenceNode   wrapper = WrapReferenceNodeGen.create();
   @Child protected UnaryExpressionNode haltNode;
   @Child protected RecordTwoEvent      tracePromiseResolution;
+  @Child protected RecordTwoEvent      tracePromiseResolutionEnd;
   @Child protected RecordTwoEvent      tracePromiseChaining;
 
   private final ValueProfile whenResolvedProfile = ValueProfile.createClassProfile();
@@ -44,6 +44,7 @@ public abstract class AbstractPromiseResolutionNode extends QuaternaryExpression
 
     if (VmSettings.ACTOR_TRACING) {
       tracePromiseResolution = new RecordTwoEvent(TraceRecord.PROMISE_RESOLUTION);
+      tracePromiseResolutionEnd = new RecordTwoEvent(TraceRecord.PROMISE_RESOLUTION_END);
       tracePromiseChaining = new RecordTwoEvent(TraceRecord.PROMISE_CHAINED);
     }
   }
@@ -138,11 +139,7 @@ public abstract class AbstractPromiseResolutionNode extends QuaternaryExpression
                 (NumberedPassiveRecord) TracingActivityThread.currentThread().getActivity()
                                                              .peekNextReplayEvent();
             assert npr.type == TraceRecord.PROMISE_RESOLUTION;
-            TracingActivityThread.currentThread().getActivity().getNextReplayEvent();
-            TracingActivityThread.currentThread().getActivity().getNextReplayEvent();
-            ((SReplayPromise) promiseToBeResolved).untrackedResolution = true;
-            Output.println("CONSUMED EVENTS");
-            // consume event, not going to happen now
+            ((SReplayPromise) promiseValue).consumeEventsForDelayedResolution();
           }
 
           if (VmSettings.ACTOR_TRACING) {
@@ -162,16 +159,17 @@ public abstract class AbstractPromiseResolutionNode extends QuaternaryExpression
     Actor current = EventualMessage.getActorCurrentMessageIsExecutionOn();
 
     resolve(type, wrapper, promise, result, current, actorPool, haltOnResolution,
-        whenResolvedProfile, tracePromiseResolution);
+        whenResolvedProfile, tracePromiseResolution, tracePromiseResolutionEnd);
   }
 
   public static void resolve(final Resolution type,
       final WrapReferenceNode wrapper, final SPromise promise,
       final Object result, final Actor current, final ForkJoinPool actorPool,
       final boolean haltOnResolution, final ValueProfile whenResolvedProfile,
-      final RecordTwoEvent record) {
+      final RecordTwoEvent record,
+      final RecordTwoEvent recordStop) {
     Object wrapped = wrapper.execute(result, promise.owner, current);
     SResolver.resolveAndTriggerListenersUnsynced(type, result, wrapped, promise,
-        current, actorPool, haltOnResolution, whenResolvedProfile, record);
+        current, actorPool, haltOnResolution, whenResolvedProfile, record, recordStop);
   }
 }

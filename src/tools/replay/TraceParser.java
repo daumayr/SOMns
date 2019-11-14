@@ -9,7 +9,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.util.HashMap;
-import java.util.Queue;
+import java.util.LinkedList;
 
 import som.Output;
 import som.interpreter.actors.EventualMessage;
@@ -102,7 +102,7 @@ public final class TraceParser implements Closeable {
     return new String(bb.array());
   }
 
-  public Queue<ReplayRecord> getReplayEventsForEntity(final long replayId) {
+  public LinkedList<ReplayRecord> getReplayEventsForEntity(final long replayId) {
     EntityNode entity = entities.get(replayId);
     assert !entity.retrieved;
     entity.retrieved = true;
@@ -141,12 +141,12 @@ public final class TraceParser implements Closeable {
   }
 
   private static TraceRecord[] createParseTable() {
-    TraceRecord[] result = new TraceRecord[21];
+    TraceRecord[] result = new TraceRecord[22];
 
     result[TraceRecord.ACTOR_CREATION.value] = TraceRecord.ACTOR_CREATION;
     result[TraceRecord.ACTOR_CONTEXT.value] = TraceRecord.ACTOR_CONTEXT;
     result[TraceRecord.MESSAGE.value] = TraceRecord.MESSAGE;
-    result[TraceRecord.PROMISE_MESSAGE.value] = TraceRecord.PROMISE_MESSAGE;
+    result[TraceRecord.REGISTER_WHENRESOLVED.value] = TraceRecord.REGISTER_WHENRESOLVED;
     result[TraceRecord.SYSTEM_CALL.value] = TraceRecord.SYSTEM_CALL;
     result[TraceRecord.CHANNEL_CREATION.value] = TraceRecord.CHANNEL_CREATION;
     result[TraceRecord.PROCESS_CONTEXT.value] = TraceRecord.PROCESS_CONTEXT;
@@ -169,6 +169,7 @@ public final class TraceParser implements Closeable {
     result[TraceRecord.CONDITION_SIGNALALL.value] = TraceRecord.CONDITION_SIGNALALL;
     result[TraceRecord.PROMISE_RESOLUTION.value] = TraceRecord.PROMISE_RESOLUTION;
     result[TraceRecord.PROMISE_CHAINED.value] = TraceRecord.PROMISE_CHAINED;
+    result[TraceRecord.PROMISE_RESOLUTION_END.value] = TraceRecord.PROMISE_RESOLUTION_END;
 
     return result;
   }
@@ -365,8 +366,9 @@ public final class TraceParser implements Closeable {
         assert b.position() == start + RecordEventNodes.ONE_EVENT_SIZE;
         break;
 
-      case PROMISE_MESSAGE:
+      case REGISTER_WHENRESOLVED:
       case PROMISE_RESOLUTION:
+      case PROMISE_RESOLUTION_END:
       case PROMISE_CHAINED:
       case MESSAGE:
       case CHANNEL_READ:

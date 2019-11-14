@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedList;
-import java.util.Queue;
 
 import som.vm.Activity;
 import tools.concurrency.TracingActivityThread;
@@ -59,9 +58,9 @@ public class ReplayData {
 
     HashMap<Integer, Subtrace> subtraces;
 
-    Queue<ReplayRecord> replayEvents;
-    int                 nextContext = 0;
-    boolean             retrieved   = false;
+    LinkedList<ReplayRecord> replayEvents;
+    int                      nextContext = 0;
+    boolean                  retrieved   = false;
 
     public EntityNode(final long entityId) {
       this.entityId = entityId;
@@ -121,7 +120,7 @@ public class ReplayData {
       replayEvents.add(mr);
     }
 
-    public Queue<ReplayRecord> getReplayEvents() {
+    public LinkedList<ReplayRecord> getReplayEvents() {
       if (replayEvents == null) {
         replayEvents = new LinkedList<>();
       }

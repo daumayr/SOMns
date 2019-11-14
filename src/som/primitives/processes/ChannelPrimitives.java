@@ -1,6 +1,6 @@
 package som.primitives.processes;
 
-import java.util.Queue;
+import java.util.LinkedList;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinPool.ForkJoinWorkerThreadFactory;
 import java.util.concurrent.ForkJoinWorkerThread;
@@ -112,7 +112,8 @@ public abstract class ChannelPrimitives {
       return ActivityType.PROCESS;
     }
 
-    protected void beforeExec(final SInvokable disp) {}
+    protected void beforeExec(final SInvokable disp) {
+    }
 
     @Override
     public void run() {
@@ -211,8 +212,8 @@ public abstract class ChannelPrimitives {
   }
 
   public static class ReplayProcess extends TracingProcess {
-    private final Queue<ReplayRecord> replayEvents;
-    private int                       children = 0;
+    private final LinkedList<ReplayRecord> replayEvents;
+    private int                            children = 0;
 
     public ReplayProcess(final SObjectWithClass obj, final boolean stopOnRootNode,
         final VM vm) {
@@ -226,7 +227,7 @@ public abstract class ChannelPrimitives {
     }
 
     @Override
-    public Queue<ReplayRecord> getReplayEventBuffer() {
+    public LinkedList<ReplayRecord> getReplayEventBuffer() {
       return this.replayEvents;
     }
 
