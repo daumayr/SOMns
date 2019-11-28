@@ -50,7 +50,6 @@ import tools.replay.TraceParser;
 import tools.replay.TraceRecord;
 import tools.replay.actors.ActorExecutionTrace;
 import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
-import tools.replay.nodes.RecordEventNodes.RecordTwoEvent;
 import tools.replay.nodes.TraceContextNode;
 import tools.replay.nodes.TraceContextNodeGen;
 
@@ -255,8 +254,8 @@ public abstract class ChannelPrimitives {
     /** Breakpoint info for triggering suspension after write. */
     @Child protected AbstractBreakpointNode afterWrite;
 
-    @Child protected RecordTwoEvent traceRead =
-        new RecordTwoEvent(TraceRecord.CHANNEL_READ.value);
+    @Child protected RecordOneEvent traceRead =
+        new RecordOneEvent(TraceRecord.CHANNEL_READ);
 
     @Override
     public final ReadPrim initialize(final VM vm) {
@@ -304,8 +303,8 @@ public abstract class ChannelPrimitives {
 
     @Child protected ExceptionSignalingNode notAValue;
 
-    @Child protected RecordTwoEvent traceWrite =
-        new RecordTwoEvent(TraceRecord.CHANNEL_WRITE.value);
+    @Child protected RecordOneEvent traceWrite =
+        new RecordOneEvent(TraceRecord.CHANNEL_WRITE);
 
     @Override
     public final WritePrim initialize(final VM vm) {

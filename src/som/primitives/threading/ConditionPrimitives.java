@@ -18,7 +18,6 @@ import tools.replay.ReplayRecord.AwaitTimeoutRecord;
 import tools.replay.TraceRecord;
 import tools.replay.actors.TracingLock.TracingCondition;
 import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
-import tools.replay.nodes.RecordEventNodes.RecordTwoEvent;
 
 
 public final class ConditionPrimitives {
@@ -50,8 +49,8 @@ public final class ConditionPrimitives {
   @Primitive(primitive = "threadingAwait:")
   public abstract static class AwaitPrim extends UnaryExpressionNode {
 
-    @Child protected static RecordTwoEvent traceWakeup =
-        new RecordTwoEvent(TraceRecord.CONDITION_WAKEUP);
+    @Child protected static RecordOneEvent traceWakeup =
+        new RecordOneEvent(TraceRecord.CONDITION_WAKEUP);
 
     @Specialization
     @TruffleBoundary
@@ -63,7 +62,7 @@ public final class ConditionPrimitives {
         cond.await();
         if (VmSettings.ACTOR_TRACING) {
           TracingCondition tc = (TracingCondition) cond;
-          traceWakeup.record(tc.owner.getId(), tc.owner.getNextEventNumber());
+          traceWakeup.record(tc.owner.getNextEventNumber());
           tc.owner.replayIncrementEventNo();
         }
 
@@ -82,8 +81,8 @@ public final class ConditionPrimitives {
   public abstract static class AwaitForPrim extends BinaryExpressionNode {
     @Child protected static RecordOneEvent traceResult =
         new RecordOneEvent(TraceRecord.CONDITION_AWAITTIMEOUT_RES);
-    @Child protected static RecordTwoEvent traceWakeup =
-        new RecordTwoEvent(TraceRecord.CONDITION_WAKEUP);
+    @Child protected static RecordOneEvent traceWakeup =
+        new RecordOneEvent(TraceRecord.CONDITION_WAKEUP);
 
     @Specialization
     @TruffleBoundary
@@ -111,7 +110,7 @@ public final class ConditionPrimitives {
               traceResult.record(result ? 1 : 0);
               if (result) {
                 TracingCondition tc = (TracingCondition) cond;
-                traceWakeup.record(tc.owner.getId(), tc.owner.getNextEventNumber());
+                traceWakeup.record(tc.owner.getNextEventNumber());
                 tc.owner.replayIncrementEventNo();
               }
             }
