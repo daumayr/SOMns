@@ -9,15 +9,15 @@ import som.vm.VmSettings;
 import som.vmobjects.SArray.STransferArray;
 import som.vmobjects.SObject;
 import tools.replay.TraceRecord;
-import tools.replay.nodes.RecordEventNodes.RecordTwoEvent;
+import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
 
 
 public abstract class WrapReferenceNode extends Node {
-  @Child protected RecordTwoEvent tracePromiseChaining;
+  @Child protected RecordOneEvent tracePromiseChaining;
 
   public WrapReferenceNode() {
     if (VmSettings.ACTOR_TRACING) {
-      tracePromiseChaining = new RecordTwoEvent(TraceRecord.PROMISE_CHAINED);
+      tracePromiseChaining = new RecordOneEvent(TraceRecord.PROMISE_CHAINED);
     }
   }
 

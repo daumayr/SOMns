@@ -15,7 +15,7 @@ import som.vmobjects.SBlock;
 import som.vmobjects.SSymbol;
 import tools.concurrency.TracingActivityThread;
 import tools.parser.KomposTraceParser;
-import tools.replay.nodes.RecordEventNodes.RecordTwoEvent;
+import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
 import tools.snapshot.SnapshotBackend;
 import tools.snapshot.SnapshotBuffer;
 
@@ -87,7 +87,7 @@ public abstract class EventualMessage {
     return onReceive.getRootNode().getSourceSection();
   }
 
-  public RecordTwoEvent getTracingNode() {
+  public RecordOneEvent getTracingNode() {
     assert onReceive != null;
     assert VmSettings.ACTOR_TRACING;
     ReceivedRootNode rrn = (ReceivedRootNode) onReceive.getRootNode();

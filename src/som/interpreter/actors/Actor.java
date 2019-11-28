@@ -32,7 +32,7 @@ import tools.debugger.WebDebugger;
 import tools.debugger.entities.ActivityType;
 import tools.replay.TraceRecord;
 import tools.replay.actors.ActorExecutionTrace;
-import tools.replay.nodes.RecordEventNodes.RecordTwoEvent;
+import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
 import tools.replay.nodes.TraceContextNode;
 import tools.replay.nodes.TraceContextNodeGen;
 import tools.snapshot.SnapshotBuffer;
@@ -206,13 +206,13 @@ public class Actor implements Activity {
 
   public static final class ExecutorRootNode extends RootNode {
 
-    @Child protected RecordTwoEvent recordPromiseChaining;
+    @Child protected RecordOneEvent recordPromiseChaining;
 
     private ExecutorRootNode(final SomLanguage language) {
       super(language);
 
       if (VmSettings.ACTOR_TRACING) {
-        this.recordPromiseChaining = new RecordTwoEvent(TraceRecord.PROMISE_CHAINED);
+        this.recordPromiseChaining = new RecordOneEvent(TraceRecord.PROMISE_CHAINED);
       }
     }
 
@@ -350,7 +350,8 @@ public class Actor implements Activity {
   }
 
   @Override
-  public void setStepToNextTurn(final boolean val) {}
+  public void setStepToNextTurn(final boolean val) {
+  }
 
   public static final class ActorProcessingThreadFactory
       implements ForkJoinWorkerThreadFactory {

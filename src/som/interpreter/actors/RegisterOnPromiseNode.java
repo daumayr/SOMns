@@ -13,18 +13,18 @@ import som.vm.VmSettings;
 import tools.replay.ReplayRecord;
 import tools.replay.ReplayRecord.NumberedPassiveRecord;
 import tools.replay.TraceRecord;
-import tools.replay.nodes.RecordEventNodes.RecordTwoEvent;
+import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
 
 
 public abstract class RegisterOnPromiseNode {
 
   public static final class RegisterWhenResolved extends Node {
     @Child protected SchedulePromiseHandlerNode schedule;
-    @Child protected RecordTwoEvent             promiseMsgSend;
+    @Child protected RecordOneEvent             promiseMsgSend;
 
     public RegisterWhenResolved(final ForkJoinPool actorPool) {
       schedule = SchedulePromiseHandlerNodeGen.create(actorPool);
-      promiseMsgSend = new RecordTwoEvent(TraceRecord.REGISTER_WHENRESOLVED);
+      promiseMsgSend = new RecordOneEvent(TraceRecord.REGISTER_WHENRESOLVED);
     }
 
     public void register(final SPromise promise, final PromiseMessage msg,
@@ -76,7 +76,7 @@ public abstract class RegisterOnPromiseNode {
 
           if (VmSettings.ACTOR_TRACING) {
             // This is whenResolved
-            promiseMsgSend.record(0, ((STracingPromise) promise).version);
+            promiseMsgSend.record(((STracingPromise) promise).version);
             ((STracingPromise) promise).version++;
           }
 
@@ -117,11 +117,11 @@ public abstract class RegisterOnPromiseNode {
 
   public static final class RegisterOnError extends Node {
     @Child protected SchedulePromiseHandlerNode schedule;
-    @Child protected RecordTwoEvent             promiseMsgSend;
+    @Child protected RecordOneEvent             promiseMsgSend;
 
     public RegisterOnError(final ForkJoinPool actorPool) {
       this.schedule = SchedulePromiseHandlerNodeGen.create(actorPool);
-      this.promiseMsgSend = new RecordTwoEvent(TraceRecord.REGISTER_WHENRESOLVED);
+      this.promiseMsgSend = new RecordOneEvent(TraceRecord.REGISTER_WHENRESOLVED);
     }
 
     public void register(final SPromise promise, final PromiseMessage msg,
@@ -153,7 +153,7 @@ public abstract class RegisterOnPromiseNode {
 
           if (VmSettings.ACTOR_TRACING) {
             // This is whenResolved
-            promiseMsgSend.record(0, ((STracingPromise) promise).version);
+            promiseMsgSend.record(((STracingPromise) promise).version);
             ((STracingPromise) promise).version++;
           }
 
