@@ -27,7 +27,7 @@ import tools.replay.PassiveEntityWithEvents;
 import tools.replay.ReplayRecord;
 import tools.replay.ReplayRecord.NumberedPassiveRecord;
 import tools.replay.TraceRecord;
-import tools.replay.nodes.RecordEventNodes.RecordTwoEvent;
+import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
 import tools.snapshot.nodes.PromiseSerializationNodesFactory.PromiseSerializationNodeFactory;
 import tools.snapshot.nodes.PromiseSerializationNodesFactory.ResolverSerializationNodeFactory;
 
@@ -166,7 +166,7 @@ public class SPromise extends SObjectWithClass {
   }
 
   public final synchronized SPromise getChainedPromiseFor(final Actor target,
-      final RecordTwoEvent recordPromiseChaining) {
+      final RecordOneEvent recordPromiseChaining) {
     SPromise remote = SPromise.createPromise(target, haltOnResolver,
         haltOnResolution, null);
     if (VmSettings.KOMPOS_TRACING) {
@@ -189,7 +189,7 @@ public class SPromise extends SObjectWithClass {
     } else {
 
       if (VmSettings.ACTOR_TRACING) {
-        recordPromiseChaining.record(0, ((STracingPromise) this).version);
+        recordPromiseChaining.record(((STracingPromise) this).version);
         ((STracingPromise) this).version++;
       }
       if (VmSettings.REPLAY) {
@@ -730,8 +730,8 @@ public class SPromise extends SObjectWithClass {
     protected static void resolveChainedPromisesUnsync(final Resolution type,
         final SPromise promise, final Object result, final Actor current,
         final ForkJoinPool actorPool, final boolean haltOnResolution,
-        final ValueProfile whenResolvedProfile, final RecordTwoEvent record,
-        final RecordTwoEvent recordStop) {
+        final ValueProfile whenResolvedProfile, final RecordOneEvent record,
+        final RecordOneEvent recordStop) {
       // TODO: we should change the implementation of chained promises to
       // always move all the handlers to the other promise, then we
       // don't need to worry about traversing the chain, which can
@@ -756,8 +756,8 @@ public class SPromise extends SObjectWithClass {
     private static void resolveMoreChainedPromisesUnsynced(final Resolution type,
         final SPromise promise, final Object result, final Actor current,
         final ForkJoinPool actorPool, final boolean haltOnResolution,
-        final ValueProfile whenResolvedProfile, final RecordTwoEvent record,
-        final RecordTwoEvent recordStop) {
+        final ValueProfile whenResolvedProfile, final RecordOneEvent record,
+        final RecordOneEvent recordStop) {
       if (promise.chainedPromiseExt != null) {
         ArrayList<SPromise> chainedPromiseExt = promise.chainedPromiseExt;
         promise.chainedPromiseExt = null;
@@ -778,8 +778,8 @@ public class SPromise extends SObjectWithClass {
     protected static void resolveAndTriggerListenersUnsynced(final Resolution type,
         final Object result, final Object wrapped, final SPromise p, final Actor current,
         final ForkJoinPool actorPool, final boolean haltOnResolution,
-        final ValueProfile whenResolvedProfile, final RecordTwoEvent record,
-        final RecordTwoEvent recordStop) {
+        final ValueProfile whenResolvedProfile, final RecordOneEvent tracePromiseResolution2,
+        final RecordOneEvent tracePromiseResolutionEnd2) {
       assert !(result instanceof SPromise);
 
       if (VmSettings.KOMPOS_TRACING) {
@@ -815,7 +815,7 @@ public class SPromise extends SObjectWithClass {
         }
 
         if (VmSettings.ACTOR_TRACING) {
-          record.record(0, ((STracingPromise) p).version);
+          tracePromiseResolution2.record(((STracingPromise) p).version);
         }
 
         if (type == Resolution.SUCCESSFUL) {
@@ -826,10 +826,10 @@ public class SPromise extends SObjectWithClass {
           scheduleAllOnErrorUnsync(p, result, current, actorPool, haltOnResolution);
         }
         resolveChainedPromisesUnsync(type, p, result, current, actorPool, haltOnResolution,
-            whenResolvedProfile, record, recordStop);
+            whenResolvedProfile, tracePromiseResolution2, tracePromiseResolutionEnd2);
 
         if (VmSettings.ACTOR_TRACING) {
-          recordStop.record(0, ((STracingPromise) p).version);
+          tracePromiseResolutionEnd2.record(((STracingPromise) p).version);
         }
       }
     }

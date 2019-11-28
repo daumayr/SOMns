@@ -61,7 +61,7 @@ public class TracingActors {
         final ForkJoinPool actorPool) {
       super.send(msg, actorPool);
       if (VmSettings.ACTOR_TRACING) {
-        msg.getTracingNode().record(this.activityId, this.version);
+        msg.getTracingNode().record(this.version);
         this.version++;
         // TODO maybe try to get the recording itself done outside the synchronized method
       }

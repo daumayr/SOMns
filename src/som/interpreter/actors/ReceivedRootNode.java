@@ -15,7 +15,7 @@ import tools.concurrency.KomposTrace;
 import tools.debugger.WebDebugger;
 import tools.debugger.entities.DynamicScopeType;
 import tools.replay.TraceRecord;
-import tools.replay.nodes.RecordEventNodes.RecordTwoEvent;
+import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
 import tools.snapshot.nodes.MessageSerializationNode;
 import tools.snapshot.nodes.MessageSerializationNodeFactory;
 
@@ -25,7 +25,7 @@ public abstract class ReceivedRootNode extends RootNode {
   @Child protected AbstractPromiseResolutionNode resolve;
   @Child protected AbstractPromiseResolutionNode error;
 
-  @Child protected RecordTwoEvent           messageTracer;
+  @Child protected RecordOneEvent           messageTracer;
   @Child protected MessageSerializationNode serializer;
 
   private final VM            vm;
@@ -50,7 +50,7 @@ public abstract class ReceivedRootNode extends RootNode {
     }
 
     if (VmSettings.ACTOR_TRACING) {
-      messageTracer = new RecordTwoEvent(TraceRecord.MESSAGE);
+      messageTracer = new RecordOneEvent(TraceRecord.MESSAGE);
     }
   }
 

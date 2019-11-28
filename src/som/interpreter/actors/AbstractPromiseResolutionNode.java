@@ -23,7 +23,7 @@ import tools.concurrency.KomposTrace;
 import tools.concurrency.TracingActivityThread;
 import tools.replay.ReplayRecord.NumberedPassiveRecord;
 import tools.replay.TraceRecord;
-import tools.replay.nodes.RecordEventNodes.RecordTwoEvent;
+import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
 
 
 @GenerateWrapper
@@ -33,9 +33,9 @@ public abstract class AbstractPromiseResolutionNode extends QuaternaryExpression
 
   @Child protected WrapReferenceNode   wrapper = WrapReferenceNodeGen.create();
   @Child protected UnaryExpressionNode haltNode;
-  @Child protected RecordTwoEvent      tracePromiseResolution;
-  @Child protected RecordTwoEvent      tracePromiseResolutionEnd;
-  @Child protected RecordTwoEvent      tracePromiseChaining;
+  @Child protected RecordOneEvent      tracePromiseResolution;
+  @Child protected RecordOneEvent      tracePromiseResolutionEnd;
+  @Child protected RecordOneEvent      tracePromiseChaining;
 
   private final ValueProfile whenResolvedProfile = ValueProfile.createClassProfile();
 
@@ -43,9 +43,9 @@ public abstract class AbstractPromiseResolutionNode extends QuaternaryExpression
     haltNode = insert(SuspendExecutionNodeGen.create(2, null));
 
     if (VmSettings.ACTOR_TRACING) {
-      tracePromiseResolution = new RecordTwoEvent(TraceRecord.PROMISE_RESOLUTION);
-      tracePromiseResolutionEnd = new RecordTwoEvent(TraceRecord.PROMISE_RESOLUTION_END);
-      tracePromiseChaining = new RecordTwoEvent(TraceRecord.PROMISE_CHAINED);
+      tracePromiseResolution = new RecordOneEvent(TraceRecord.PROMISE_RESOLUTION);
+      tracePromiseResolutionEnd = new RecordOneEvent(TraceRecord.PROMISE_RESOLUTION_END);
+      tracePromiseChaining = new RecordOneEvent(TraceRecord.PROMISE_CHAINED);
     }
   }
 
@@ -143,7 +143,7 @@ public abstract class AbstractPromiseResolutionNode extends QuaternaryExpression
           }
 
           if (VmSettings.ACTOR_TRACING) {
-            tracePromiseChaining.record(0, ((STracingPromise) promiseValue).version);
+            tracePromiseChaining.record(((STracingPromise) promiseValue).version);
             ((STracingPromise) promiseValue).version++;
           }
           promiseValue.addChainedPromise(promiseToBeResolved);
@@ -166,10 +166,11 @@ public abstract class AbstractPromiseResolutionNode extends QuaternaryExpression
       final WrapReferenceNode wrapper, final SPromise promise,
       final Object result, final Actor current, final ForkJoinPool actorPool,
       final boolean haltOnResolution, final ValueProfile whenResolvedProfile,
-      final RecordTwoEvent record,
-      final RecordTwoEvent recordStop) {
+      final RecordOneEvent tracePromiseResolution2,
+      final RecordOneEvent tracePromiseResolutionEnd2) {
     Object wrapped = wrapper.execute(result, promise.owner, current);
     SResolver.resolveAndTriggerListenersUnsynced(type, result, wrapped, promise,
-        current, actorPool, haltOnResolution, whenResolvedProfile, record, recordStop);
+        current, actorPool, haltOnResolution, whenResolvedProfile, tracePromiseResolution2,
+        tracePromiseResolutionEnd2);
   }
 }
