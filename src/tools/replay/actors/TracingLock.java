@@ -9,7 +9,7 @@ import som.vm.VmSettings;
 import tools.concurrency.TracingActivityThread;
 import tools.replay.PassiveEntityWithEvents;
 import tools.replay.ReplayRecord.NumberedPassiveRecord;
-import tools.replay.nodes.RecordEventNodes.RecordTwoEvent;
+import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
 
 
 public final class TracingLock extends ReentrantLock implements PassiveEntityWithEvents {
@@ -31,9 +31,9 @@ public final class TracingLock extends ReentrantLock implements PassiveEntityWit
     return id;
   }
 
-  public synchronized boolean tracingIsLocked(final RecordTwoEvent traceIsLocked) {
+  public synchronized boolean tracingIsLocked(final RecordOneEvent traceIsLocked) {
     boolean isLocked = isLocked();
-    traceIsLocked.record(id, isLocked ? 1 : 0);
+    traceIsLocked.record(isLocked ? 1 : 0);
     return isLocked;
   }
 
@@ -46,9 +46,9 @@ public final class TracingLock extends ReentrantLock implements PassiveEntityWit
     return new TracingCondition(this, super.newCondition());
   }
 
-  public synchronized void tracingLock(final RecordTwoEvent traceLock) {
+  public synchronized void tracingLock(final RecordOneEvent traceLock) {
     lock();
-    traceLock.record(id, eventNo);
+    traceLock.record(eventNo);
     eventNo++;
   }
 

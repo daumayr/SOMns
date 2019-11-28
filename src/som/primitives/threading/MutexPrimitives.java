@@ -27,15 +27,14 @@ import tools.replay.ReplayRecord.IsLockedRecord;
 import tools.replay.TraceRecord;
 import tools.replay.actors.TracingLock;
 import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
-import tools.replay.nodes.RecordEventNodes.RecordTwoEvent;
 
 
 public final class MutexPrimitives {
   @GenerateNodeFactory
   @Primitive(primitive = "threadingLock:", selector = "lock")
   public abstract static class LockPrim extends UnaryExpressionNode {
-    @Child protected static RecordTwoEvent traceLock =
-        new RecordTwoEvent(TraceRecord.LOCK_LOCK);
+    @Child protected static RecordOneEvent traceLock =
+        new RecordOneEvent(TraceRecord.LOCK_LOCK);
 
     @TruffleBoundary
     @Specialization
@@ -118,8 +117,8 @@ public final class MutexPrimitives {
   @GenerateNodeFactory
   @Primitive(primitive = "threadingIsLocked:")
   public abstract static class IsLockedPrim extends UnaryExpressionNode {
-    @Child protected RecordTwoEvent traceIsLocked =
-        new RecordTwoEvent(TraceRecord.LOCK_ISLOCKED);
+    @Child protected RecordOneEvent traceIsLocked =
+        new RecordOneEvent(TraceRecord.LOCK_ISLOCKED);
 
     @Specialization
     @TruffleBoundary
