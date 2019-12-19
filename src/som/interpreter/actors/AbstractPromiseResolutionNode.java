@@ -21,7 +21,7 @@ import som.interpreter.nodes.nary.UnaryExpressionNode;
 import som.vm.VmSettings;
 import tools.concurrency.KomposTrace;
 import tools.concurrency.TracingActivityThread;
-import tools.replay.ReplayRecord.NumberedPassiveRecord;
+import tools.replay.ReplayRecord;
 import tools.replay.TraceRecord;
 import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
 
@@ -115,9 +115,8 @@ public abstract class AbstractPromiseResolutionNode extends QuaternaryExpression
       Resolution state = promiseValue.getResolutionStateUnsync();
 
       if (VmSettings.REPLAY) {
-        NumberedPassiveRecord npr =
-            (NumberedPassiveRecord) TracingActivityThread.currentThread().getActivity()
-                                                         .peekNextReplayEvent();
+        ReplayRecord npr = TracingActivityThread.currentThread().getActivity()
+                                                .peekNextReplayEvent();
         if (npr.type == TraceRecord.PROMISE_CHAINED) {
           ((SReplayPromise) promiseValue).registerChainedPromiseReplay(
               (SReplayPromise) promiseToBeResolved);
@@ -135,9 +134,8 @@ public abstract class AbstractPromiseResolutionNode extends QuaternaryExpression
           }
 
           if (VmSettings.REPLAY) {
-            NumberedPassiveRecord npr =
-                (NumberedPassiveRecord) TracingActivityThread.currentThread().getActivity()
-                                                             .peekNextReplayEvent();
+            ReplayRecord npr = TracingActivityThread.currentThread().getActivity()
+                                                    .peekNextReplayEvent();
             assert npr.type == TraceRecord.PROMISE_RESOLUTION;
             ((SReplayPromise) promiseValue).consumeEventsForDelayedResolution();
           }

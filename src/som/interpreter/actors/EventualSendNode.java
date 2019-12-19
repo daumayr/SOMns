@@ -42,7 +42,7 @@ import tools.debugger.entities.BreakpointType;
 import tools.debugger.entities.SendOp;
 import tools.debugger.nodes.AbstractBreakpointNode;
 import tools.debugger.session.Breakpoints;
-import tools.replay.ReplayRecord.NumberedPassiveRecord;
+import tools.replay.ReplayRecord;
 import tools.replay.TraceRecord;
 
 
@@ -213,9 +213,8 @@ public class EventualSendNode extends ExprWithTagsNode {
           promiseResolverBreakpoint.executeShouldHalt());
 
       if (VmSettings.REPLAY) {
-        NumberedPassiveRecord npr = (NumberedPassiveRecord) owner.getNextReplayEvent();
+        ReplayRecord npr = owner.getNextReplayEvent();
         assert npr.type == TraceRecord.MESSAGE;
-        assert npr.passiveEntityId == target.getId();
         msg.setReplayVersion(npr.eventNo);
       }
 
@@ -299,9 +298,8 @@ public class EventualSendNode extends ExprWithTagsNode {
       }
 
       if (VmSettings.REPLAY) {
-        NumberedPassiveRecord npr = (NumberedPassiveRecord) current.getNextReplayEvent();
+        ReplayRecord npr = current.getNextReplayEvent();
         assert npr.type == TraceRecord.MESSAGE;
-        assert npr.passiveEntityId == current.getId();
         msg.setReplayVersion(npr.eventNo);
       }
 
@@ -344,9 +342,8 @@ public class EventualSendNode extends ExprWithTagsNode {
       if (VmSettings.REPLAY) {
         // TODO similar thing for any other usages of actor.send(). especially in timer prim
         // and any external modules!
-        NumberedPassiveRecord npr = (NumberedPassiveRecord) current.getNextReplayEvent();
+        ReplayRecord npr = current.getNextReplayEvent();
         assert npr.type == TraceRecord.MESSAGE;
-        assert npr.passiveEntityId == current.getId();
         msg.setReplayVersion(npr.eventNo);
       }
 

@@ -11,7 +11,6 @@ import som.interpreter.actors.SPromise.SReplayPromise;
 import som.interpreter.actors.SPromise.STracingPromise;
 import som.vm.VmSettings;
 import tools.replay.ReplayRecord;
-import tools.replay.ReplayRecord.NumberedPassiveRecord;
 import tools.replay.TraceRecord;
 import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
 
@@ -24,7 +23,7 @@ public abstract class RegisterOnPromiseNode {
 
     public RegisterWhenResolved(final ForkJoinPool actorPool) {
       schedule = SchedulePromiseHandlerNodeGen.create(actorPool);
-      promiseMsgSend = new RecordOneEvent(TraceRecord.REGISTER_WHENRESOLVED);
+      promiseMsgSend = new RecordOneEvent(TraceRecord.PROMISE_MESSAGE);
     }
 
     public void register(final SPromise promise, final PromiseMessage msg,
@@ -39,15 +38,15 @@ public abstract class RegisterOnPromiseNode {
 
       synchronized (promise) {
         if (VmSettings.REPLAY) {
-          NumberedPassiveRecord npr = (NumberedPassiveRecord) current.peekNextReplayEvent();
+          ReplayRecord npr = current.peekNextReplayEvent();
           if (npr.type == TraceRecord.PROMISE_CHAINED && !promise.isResolvedUnsync()) {
-            npr = (NumberedPassiveRecord) current.getNextReplayEvent();
+            npr = current.getNextReplayEvent();
 
             assert msg instanceof AbstractPromiseSendMessage;
             LinkedList<ReplayRecord> events = new LinkedList<>();
             while (npr.type == TraceRecord.PROMISE_CHAINED) {
               events.add(npr);
-              npr = (NumberedPassiveRecord) current.getNextReplayEvent();
+              npr = current.getNextReplayEvent();
             }
             assert npr.type == TraceRecord.MESSAGE;
             msg.messageId = npr.eventNo;
@@ -55,11 +54,11 @@ public abstract class RegisterOnPromiseNode {
             return;
           }
 
-          assert npr.type == TraceRecord.REGISTER_WHENRESOLVED
+          assert npr.type == TraceRecord.PROMISE_MESSAGE
               || npr.type == TraceRecord.MESSAGE
               || npr.type == TraceRecord.PROMISE_CHAINED : "was: " + npr.type.name();
 
-          if (npr.type == TraceRecord.REGISTER_WHENRESOLVED) {
+          if (npr.type == TraceRecord.PROMISE_MESSAGE) {
             current.getNextReplayEvent();
             msg.messageId = npr.eventNo;
             ((SReplayPromise) promise).registerOnResolvedReplay(msg);
@@ -69,7 +68,7 @@ public abstract class RegisterOnPromiseNode {
 
         if (!promise.isResolvedUnsync()) {
           if (VmSettings.REPLAY) {
-            NumberedPassiveRecord npr = (NumberedPassiveRecord) current.getNextReplayEvent();
+            ReplayRecord npr = current.getNextReplayEvent();
             assert npr.type == TraceRecord.MESSAGE;
             msg.messageId = npr.eventNo;
           }
@@ -121,7 +120,7 @@ public abstract class RegisterOnPromiseNode {
 
     public RegisterOnError(final ForkJoinPool actorPool) {
       this.schedule = SchedulePromiseHandlerNodeGen.create(actorPool);
-      this.promiseMsgSend = new RecordOneEvent(TraceRecord.REGISTER_WHENRESOLVED);
+      this.promiseMsgSend = new RecordOneEvent(TraceRecord.PROMISE_MESSAGE);
     }
 
     public void register(final SPromise promise, final PromiseMessage msg,
@@ -138,12 +137,12 @@ public abstract class RegisterOnPromiseNode {
       // we need to schedule the callback/msg directly anyway
       synchronized (promise) {
         if (VmSettings.REPLAY) {
-          NumberedPassiveRecord npr = (NumberedPassiveRecord) current.getNextReplayEvent();
-          assert npr.type == TraceRecord.REGISTER_WHENRESOLVED
+          ReplayRecord npr = current.getNextReplayEvent();
+          assert npr.type == TraceRecord.PROMISE_MESSAGE
               || npr.type == TraceRecord.MESSAGE;
           msg.messageId = npr.eventNo;
 
-          if (npr.type == TraceRecord.REGISTER_WHENRESOLVED) {
+          if (npr.type == TraceRecord.PROMISE_MESSAGE) {
             ((SReplayPromise) promise).registerOnErrorReplay(msg);
             return;
           }

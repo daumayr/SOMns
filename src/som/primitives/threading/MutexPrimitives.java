@@ -23,7 +23,7 @@ import tools.concurrency.Tags.ExpressionBreakpoint;
 import tools.concurrency.Tags.ReleaseLock;
 import tools.concurrency.TracingActivityThread;
 import tools.replay.ReplayData;
-import tools.replay.ReplayRecord.IsLockedRecord;
+import tools.replay.ReplayRecord;
 import tools.replay.TraceRecord;
 import tools.replay.actors.TracingLock;
 import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
@@ -125,9 +125,9 @@ public final class MutexPrimitives {
     public boolean doLock(final ReentrantLock lock) {
       if (VmSettings.REPLAY) {
         Activity reader = TracingActivityThread.currentThread().getActivity();
-        IsLockedRecord ilr = (IsLockedRecord) reader.getNextReplayEvent();
-        assert ilr.lockId == ((TracingLock) lock).getId();
-        return ilr.isLocked;
+        ReplayRecord rr = reader.getNextReplayEvent();
+        assert rr.type == TraceRecord.LOCK_ISLOCKED;
+        return rr.getBoolean();
       } else if (VmSettings.ACTOR_TRACING) {
         return ((TracingLock) lock).tracingIsLocked(traceIsLocked);
       }
@@ -150,7 +150,6 @@ public final class MutexPrimitives {
   @GenerateNodeFactory
   @Primitive(primitive = "threadingMutexNew:")
   public abstract static class MutexNewPrim extends UnaryExpressionNode {
-    @Child RecordOneEvent trace = new RecordOneEvent(TraceRecord.LOCK_CREATE);
 
     // TODO: should I guard this on the mutex class?
     @Specialization
@@ -158,9 +157,6 @@ public final class MutexPrimitives {
     public final ReentrantLock doSClass(final SClass clazz) {
       if (VmSettings.ACTOR_TRACING || VmSettings.REPLAY) {
         TracingLock result = new TracingLock();
-        if (VmSettings.ACTOR_TRACING) {
-          trace.record(result.getId());
-        }
         return result;
       }
       return new ReentrantLock();

@@ -25,7 +25,6 @@ import tools.concurrency.TracingActivityThread;
 import tools.debugger.entities.PassiveEntityType;
 import tools.replay.PassiveEntityWithEvents;
 import tools.replay.ReplayRecord;
-import tools.replay.ReplayRecord.NumberedPassiveRecord;
 import tools.replay.TraceRecord;
 import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
 import tools.snapshot.nodes.PromiseSerializationNodesFactory.PromiseSerializationNodeFactory;
@@ -174,9 +173,8 @@ public class SPromise extends SObjectWithClass {
     }
 
     if (VmSettings.REPLAY) {
-      NumberedPassiveRecord npr =
-          (NumberedPassiveRecord) TracingActivityThread.currentThread().getActivity()
-                                                       .peekNextReplayEvent();
+      ReplayRecord npr = TracingActivityThread.currentThread().getActivity()
+                                              .peekNextReplayEvent();
       if (npr.type == TraceRecord.PROMISE_CHAINED) {
         ((SReplayPromise) this).registerChainedPromiseReplay((SReplayPromise) remote);
         return remote;
@@ -395,8 +393,7 @@ public class SPromise extends SObjectWithClass {
 
       assert this.eventsForDelayedResolution == null;
 
-      NumberedPassiveRecord npr =
-          (NumberedPassiveRecord) current.peekNextReplayEvent();
+      ReplayRecord npr = current.peekNextReplayEvent();
       assert npr != null;
       assert npr.type == TraceRecord.PROMISE_RESOLUTION : "was " + npr.type + " in "
           + current.getId() + " for " + this.hashCode();
@@ -415,7 +412,7 @@ public class SPromise extends SObjectWithClass {
       }
 
       // consume event
-      npr = (NumberedPassiveRecord) current.getNextReplayEvent();
+      npr = current.getNextReplayEvent();
       assert npr.type == TraceRecord.PROMISE_RESOLUTION;
 
       PriorityQueue<PromiseMessage> todo = null;
@@ -431,7 +428,7 @@ public class SPromise extends SObjectWithClass {
           PromiseMessage pm = todo.poll();
           pm.resolve(this.value, owner, (Actor) current);
 
-          npr = (NumberedPassiveRecord) current.getNextReplayEvent();
+          npr = current.getNextReplayEvent();
           assert npr.type == TraceRecord.MESSAGE : "was " + npr.type + " in "
               + current.getId();
           pm.setReplayVersion(npr.eventNo);
@@ -448,7 +445,7 @@ public class SPromise extends SObjectWithClass {
 
       sendDelayedMessages();
 
-      npr = (NumberedPassiveRecord) current.getNextReplayEvent();
+      npr = current.getNextReplayEvent();
       assert npr != null;
       assert npr.type == TraceRecord.PROMISE_RESOLUTION_END : "was " + npr.type + " in "
           + current.getId() + " for " + this.hashCode();
@@ -464,12 +461,12 @@ public class SPromise extends SObjectWithClass {
       assert eventsForDelayedResolution == null;
       eventsForDelayedResolution = new LinkedList<ReplayRecord>();
       Activity current = TracingActivityThread.currentThread().getActivity();
-      NumberedPassiveRecord npr;
+      ReplayRecord npr;
 
       int open = 0;
 
       do {
-        npr = (NumberedPassiveRecord) current.getNextReplayEvent();
+        npr = current.getNextReplayEvent();
         switch (npr.type) {
           case MESSAGE:
           case PROMISE_CHAINED:
@@ -508,7 +505,7 @@ public class SPromise extends SObjectWithClass {
         assert this.eventsForDelayedResolution.size() >= 2 : ""
             + this.eventsForDelayedResolution.size();
         current.getReplayEventBuffer().addAll(0, this.eventsForDelayedResolution);
-        NumberedPassiveRecord npr = (NumberedPassiveRecord) current.getNextReplayEvent();
+        ReplayRecord npr = current.getNextReplayEvent();
         assert npr.type == TraceRecord.PROMISE_RESOLUTION : " was " + npr.type;
 
         PriorityQueue<PromiseMessage> toSend = null;
@@ -525,7 +522,7 @@ public class SPromise extends SObjectWithClass {
             PromiseMessage pm = toSend.remove();
             pm.resolve(this.value, owner, resolver);
 
-            npr = (NumberedPassiveRecord) current.getNextReplayEvent();
+            npr = current.getNextReplayEvent();
             assert npr.type == TraceRecord.MESSAGE;
             pm.setReplayVersion(npr.eventNo);
             this.scheduleCallbacksOnResolution(this.value, pm, resolver,
@@ -537,7 +534,7 @@ public class SPromise extends SObjectWithClass {
         resolveChainedPromisesReplay(this.type, this.whenResolvedProfile);
         sendDelayedMessages();
 
-        npr = (NumberedPassiveRecord) current.getNextReplayEvent();
+        npr = current.getNextReplayEvent();
         assert npr.type == TraceRecord.PROMISE_RESOLUTION_END : "was " + npr.type + " in "
             + current.getId();
 
@@ -610,9 +607,8 @@ public class SPromise extends SObjectWithClass {
     }
 
     public void registerChainedPromiseReplay(final SReplayPromise prom) {
-      NumberedPassiveRecord npr =
-          (NumberedPassiveRecord) TracingActivityThread.currentThread().getActivity()
-                                                       .getNextReplayEvent();
+      ReplayRecord npr = TracingActivityThread.currentThread().getActivity()
+                                              .getNextReplayEvent();
       assert npr.type == TraceRecord.PROMISE_CHAINED;
       prom.priority = npr.eventNo;
 
