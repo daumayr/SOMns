@@ -14,7 +14,7 @@ import som.interpreter.objectstorage.ObjectTransitionSafepoint;
 import som.vm.Activity;
 import som.vm.VmSettings;
 import tools.concurrency.TracingActivityThread;
-import tools.replay.ReplayRecord.AwaitTimeoutRecord;
+import tools.replay.ReplayRecord;
 import tools.replay.TraceRecord;
 import tools.replay.actors.TracingLock.TracingCondition;
 import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
@@ -93,26 +93,29 @@ public final class ConditionPrimitives {
         try {
           if (VmSettings.REPLAY) {
             Activity reader = TracingActivityThread.currentThread().getActivity();
-            AwaitTimeoutRecord atr = (AwaitTimeoutRecord) reader.getNextReplayEvent();
+            ReplayRecord rr = reader.getNextReplayEvent();
 
-            if (atr.isSignaled) {
+            assert rr.type == TraceRecord.CONDITION_AWAITTIMEOUT_RES;
+            // if was signaled
+            if (rr.getBoolean()) {
               // original did not time out and was signaled
               cond.await();
               return true;
             }
 
             // original timed out, we dont wait
+
+            // TODO delay until version matches like after await
+
             return false;
           } else {
             boolean result = cond.await(milliseconds, TimeUnit.MILLISECONDS);
 
             if (VmSettings.ACTOR_TRACING) {
               traceResult.record(result ? 1 : 0);
-              if (result) {
-                TracingCondition tc = (TracingCondition) cond;
-                traceWakeup.record(tc.owner.getNextEventNumber());
-                tc.owner.replayIncrementEventNo();
-              }
+              TracingCondition tc = (TracingCondition) cond;
+              traceWakeup.record(tc.owner.getNextEventNumber());
+              tc.owner.replayIncrementEventNo();
             }
 
             return result;

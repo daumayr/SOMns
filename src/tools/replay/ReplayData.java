@@ -7,7 +7,6 @@ import java.util.LinkedList;
 
 import som.vm.Activity;
 import tools.concurrency.TracingActivityThread;
-import tools.replay.ReplayRecord.NumberedPassiveRecord;
 
 
 public class ReplayData {
@@ -24,9 +23,8 @@ public class ReplayData {
       final long passiveEntityId) {
 
     Activity reader = TracingActivityThread.currentThread().getActivity();
-    NumberedPassiveRecord npr = (NumberedPassiveRecord) reader.getNextReplayEvent();
+    ReplayRecord npr = reader.getNextReplayEvent();
     assert npr != null : reader;
-    assert passiveEntityId == npr.passiveEntityId;
 
     try {
       while (pe.getNextEventNumber() != npr.eventNo) {

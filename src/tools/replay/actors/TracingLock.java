@@ -8,7 +8,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import som.vm.VmSettings;
 import tools.concurrency.TracingActivityThread;
 import tools.replay.PassiveEntityWithEvents;
-import tools.replay.ReplayRecord.NumberedPassiveRecord;
+import tools.replay.ReplayRecord;
 import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
 
 
@@ -71,9 +71,8 @@ public final class TracingLock extends ReentrantLock implements PassiveEntityWit
       wrapped.await();
 
       if (VmSettings.REPLAY) {
-        NumberedPassiveRecord npr =
-            (NumberedPassiveRecord) TracingActivityThread.currentThread().getActivity()
-                                                         .getNextReplayEvent();
+        ReplayRecord npr = TracingActivityThread.currentThread().getActivity()
+                                                .getNextReplayEvent();
 
         while (owner.getNextEventNumber() != npr.eventNo) {
           owner.replayCondition.await();

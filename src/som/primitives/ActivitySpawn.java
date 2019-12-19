@@ -127,7 +127,7 @@ public abstract class ActivitySpawn {
     @Child protected AbstractBreakpointNode onExec;
     @Child protected ExceptionSignalingNode notAValue;
     @Child RecordOneEvent                   traceProcCreation =
-        new RecordOneEvent(TraceRecord.PROCESS_CREATION);
+        new RecordOneEvent(TraceRecord.ACTIVITY_CREATION);
 
     @Override
     public final SpawnPrim initialize(final VM vm) {
@@ -212,7 +212,8 @@ public abstract class ActivitySpawn {
 
     @Child protected ExceptionSignalingNode notAValue;
 
-    @Child RecordOneEvent traceProcCreation = new RecordOneEvent(TraceRecord.PROCESS_CREATION);
+    @Child RecordOneEvent traceProcCreation =
+        new RecordOneEvent(TraceRecord.ACTIVITY_CREATION);
 
     @Override
     public final SpawnWithPrim initialize(final VM vm) {

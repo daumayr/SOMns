@@ -357,7 +357,7 @@ public abstract class ChannelPrimitives {
   @GenerateNodeFactory
   public abstract static class ChannelNewPrim extends UnaryExpressionNode {
 
-    @Child RecordOneEvent trace = new RecordOneEvent(TraceRecord.CHANNEL_CREATION);
+    @Child RecordOneEvent trace = new RecordOneEvent(TraceRecord.ACTIVITY_CREATION);
 
     @Specialization
     public final SChannel newChannel(final Object module) {

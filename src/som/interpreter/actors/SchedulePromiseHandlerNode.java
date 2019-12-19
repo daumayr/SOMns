@@ -13,7 +13,7 @@ import som.interpreter.actors.EventualMessage.PromiseCallbackMessage;
 import som.interpreter.actors.EventualMessage.PromiseMessage;
 import som.interpreter.actors.EventualMessage.PromiseSendMessage;
 import som.vm.VmSettings;
-import tools.replay.ReplayRecord.NumberedPassiveRecord;
+import tools.replay.ReplayRecord;
 import tools.replay.TraceRecord;
 
 
@@ -45,9 +45,8 @@ public abstract class SchedulePromiseHandlerNode extends Node {
         promise.getValueUnsync(), msg.originalSender, current);
 
     if (VmSettings.REPLAY) {
-      NumberedPassiveRecord npr = (NumberedPassiveRecord) current.getNextReplayEvent();
+      ReplayRecord npr = current.getNextReplayEvent();
       assert npr.type == TraceRecord.MESSAGE;
-      assert msg.originalSender.getId() == npr.passiveEntityId;
       msg.messageId = npr.eventNo;
     }
 
@@ -87,9 +86,8 @@ public abstract class SchedulePromiseHandlerNode extends Node {
     msg.finalSender = current;
 
     if (VmSettings.REPLAY) {
-      NumberedPassiveRecord npr = (NumberedPassiveRecord) current.getNextReplayEvent();
+      ReplayRecord npr = current.getNextReplayEvent();
       assert npr.type == TraceRecord.MESSAGE;
-      assert msg.target.getId() == npr.passiveEntityId;
       msg.messageId = npr.eventNo;
     }
 
