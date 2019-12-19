@@ -12,7 +12,6 @@ import som.interpreter.nodes.nary.BinaryExpressionNode;
 import som.interpreter.nodes.nary.UnaryExpressionNode;
 import som.interpreter.objectstorage.ObjectTransitionSafepoint;
 import som.vm.VmSettings;
-import tools.concurrency.TracingActivityThread;
 import tools.replay.TraceRecord;
 import tools.replay.actors.TracingLock.TracingCondition;
 import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
@@ -53,7 +52,6 @@ public final class ConditionPrimitives {
     @Specialization
     @TruffleBoundary
     public final Condition doCondition(final Condition cond) {
-      long aid = TracingActivityThread.currentThread().getActivity().getId();
 
       try {
         ObjectTransitionSafepoint.INSTANCE.unregister();
@@ -79,7 +77,7 @@ public final class ConditionPrimitives {
   public abstract static class AwaitForPrim extends BinaryExpressionNode {
     @Child protected static RecordOneEvent traceTimeout =
         new RecordOneEvent(TraceRecord.CONDITION_TIMEOUT);
-    @Child protected static RecordOneEvent traceWakeup =
+    @Child protected static RecordOneEvent traceWakeup  =
         new RecordOneEvent(TraceRecord.CONDITION_WAKEUP);
 
     @Specialization
