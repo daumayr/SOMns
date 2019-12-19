@@ -5,10 +5,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
+import som.vm.Activity;
 import som.vm.VmSettings;
 import tools.concurrency.TracingActivityThread;
 import tools.replay.PassiveEntityWithEvents;
 import tools.replay.ReplayRecord;
+import tools.replay.TraceRecord;
 import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
 
 
@@ -95,6 +97,32 @@ public final class TracingLock extends ReentrantLock implements PassiveEntityWit
 
     @Override
     public boolean await(final long time, final TimeUnit unit) throws InterruptedException {
+      if (VmSettings.REPLAY) {
+        Activity reader = TracingActivityThread.currentThread().getActivity();
+        ReplayRecord rr = reader.getNextReplayEvent();
+        boolean result = true;
+
+        if (rr.type == TraceRecord.CONDITION_WAKEUP) {
+          // original was successful
+          wrapped.await();
+        } else if (rr.type == TraceRecord.CONDITION_TIMEOUT) {
+          // original timed out
+          result = false;
+        } else {
+          assert false;
+        }
+
+        // delay until supposed to wake up and hold lock
+        while (owner.getNextEventNumber() != rr.eventNo) {
+          owner.replayCondition.await();
+        }
+
+        owner.replayIncrementEventNo();
+        owner.replayCondition.signalAll();
+
+        return result;
+      }
+
       return wrapped.await(time, unit);
     }
 

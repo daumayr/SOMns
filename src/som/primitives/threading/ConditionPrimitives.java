@@ -11,10 +11,8 @@ import bd.primitives.Primitive;
 import som.interpreter.nodes.nary.BinaryExpressionNode;
 import som.interpreter.nodes.nary.UnaryExpressionNode;
 import som.interpreter.objectstorage.ObjectTransitionSafepoint;
-import som.vm.Activity;
 import som.vm.VmSettings;
 import tools.concurrency.TracingActivityThread;
-import tools.replay.ReplayRecord;
 import tools.replay.TraceRecord;
 import tools.replay.actors.TracingLock.TracingCondition;
 import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
@@ -79,8 +77,8 @@ public final class ConditionPrimitives {
   @GenerateNodeFactory
   @Primitive(primitive = "threadingAwait:for:")
   public abstract static class AwaitForPrim extends BinaryExpressionNode {
-    @Child protected static RecordOneEvent traceResult =
-        new RecordOneEvent(TraceRecord.CONDITION_AWAITTIMEOUT_RES);
+    @Child protected static RecordOneEvent traceTimeout =
+        new RecordOneEvent(TraceRecord.CONDITION_TIMEOUT);
     @Child protected static RecordOneEvent traceWakeup =
         new RecordOneEvent(TraceRecord.CONDITION_WAKEUP);
 
@@ -91,38 +89,22 @@ public final class ConditionPrimitives {
         ObjectTransitionSafepoint.INSTANCE.unregister();
 
         try {
-          if (VmSettings.REPLAY) {
-            Activity reader = TracingActivityThread.currentThread().getActivity();
-            ReplayRecord rr = reader.getNextReplayEvent();
+          boolean result = cond.await(milliseconds, TimeUnit.MILLISECONDS);
 
-            assert rr.type == TraceRecord.CONDITION_AWAITTIMEOUT_RES;
-            // if was signaled
-            if (rr.getBoolean()) {
-              // original did not time out and was signaled
-              cond.await();
-              return true;
-            }
-
-            // original timed out, we dont wait
-
-            // TODO delay until version matches like after await
-
-            return false;
-          } else {
-            boolean result = cond.await(milliseconds, TimeUnit.MILLISECONDS);
-
-            if (VmSettings.ACTOR_TRACING) {
-              traceResult.record(result ? 1 : 0);
-              TracingCondition tc = (TracingCondition) cond;
+          if (VmSettings.ACTOR_TRACING) {
+            TracingCondition tc = (TracingCondition) cond;
+            if (result) {
               traceWakeup.record(tc.owner.getNextEventNumber());
-              tc.owner.replayIncrementEventNo();
+            } else {
+              traceTimeout.record(tc.owner.getNextEventNumber());
             }
-
-            return result;
+            tc.owner.replayIncrementEventNo();
           }
+          return result;
+
         } catch (InterruptedException e) {
           if (VmSettings.ACTOR_TRACING) {
-            traceResult.record(0);
+            traceTimeout.record(0);
           }
           return false;
         }
