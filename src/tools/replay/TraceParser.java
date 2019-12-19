@@ -149,8 +149,8 @@ public final class TraceParser implements Closeable {
     result[TraceRecord.CHANNEL_WRITE.value] = TraceRecord.CHANNEL_WRITE;
 
     result[TraceRecord.LOCK_ISLOCKED.value] = TraceRecord.LOCK_ISLOCKED;
-    result[TraceRecord.CONDITION_AWAITTIMEOUT_RES.value] =
-        TraceRecord.CONDITION_AWAITTIMEOUT_RES;
+    result[TraceRecord.CONDITION_TIMEOUT.value] =
+        TraceRecord.CONDITION_TIMEOUT;
 
     result[TraceRecord.CHANNEL_READ.value] = TraceRecord.CHANNEL_READ;
     result[TraceRecord.CHANNEL_WRITE.value] = TraceRecord.CHANNEL_WRITE;
@@ -307,7 +307,7 @@ public final class TraceParser implements Closeable {
         b.getInt();
         break;
 
-      case CONDITION_AWAITTIMEOUT_RES:
+      case CONDITION_TIMEOUT:
       case LOCK_ISLOCKED:
       case PROMISE_MESSAGE:
       case PROMISE_RESOLUTION:
