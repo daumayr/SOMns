@@ -56,13 +56,13 @@ else
   declare -a Threads=(
     "MutexSuite.ProducerConsumer 1 0 10 4"
     "MutexSuite.Philosophers 1 0 500 4"
-    "Lee 1 0 4"
-    "Vacation 1 0 7"
+    "Lee 1 0 4 4"
+    "Vacation 1 0 7 4"
   )
 
   declare -a STM=(
-    "LeeSTM 1 0 4"
-    "VacationSTM 1 0 7"
+    "LeeSTM 1 0 4 4"
+    "VacationSTM 1 0 7 4"
   )
 
 fi

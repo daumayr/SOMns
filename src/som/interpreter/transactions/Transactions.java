@@ -176,6 +176,9 @@ public final class Transactions {
           // simulate conflict if this is not supposed to commit yet!
           return false;
         }
+
+        tat.getNextReplayEvent();// consume event
+        version++;
       } else if (VmSettings.ACTOR_TRACING) {
         recordCommit.record(version);
         version++;
