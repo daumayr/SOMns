@@ -44,8 +44,7 @@ public final class MutexPrimitives {
 
         ObjectTransitionSafepoint.INSTANCE.unregister();
         if (VmSettings.REPLAY) {
-          ReplayData.replayDelayNumberedEvent((TracingLock) lock,
-              ((TracingLock) lock).getId());
+          ReplayData.replayDelayNumberedEvent((TracingLock) lock);
         }
 
         if (VmSettings.ACTOR_TRACING) {

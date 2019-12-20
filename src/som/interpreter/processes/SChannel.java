@@ -87,7 +87,7 @@ public class SChannel extends SAbstractObject {
       ObjectTransitionSafepoint.INSTANCE.unregister();
 
       if (VmSettings.REPLAY) {
-        ReplayData.replayDelayNumberedEvent(this, channel.getId());
+        ReplayData.replayDelayNumberedEvent(this);
       }
 
       try {
@@ -162,7 +162,7 @@ public class SChannel extends SAbstractObject {
       ObjectTransitionSafepoint.INSTANCE.unregister();
 
       if (VmSettings.REPLAY) {
-        ReplayData.replayDelayNumberedEvent(this, channel.getId());
+        ReplayData.replayDelayNumberedEvent(this);
       }
 
       try {

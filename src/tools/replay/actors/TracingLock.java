@@ -5,6 +5,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
+import som.Output;
 import som.vm.Activity;
 import som.vm.VmSettings;
 import tools.concurrency.TracingActivityThread;
@@ -16,21 +17,15 @@ import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
 
 public final class TracingLock extends ReentrantLock implements PassiveEntityWithEvents {
   private static final long serialVersionUID = -3346973644925799901L;
-  final long                id;
   volatile int              eventNo          = 0;
   public final Condition    replayCondition;
 
   public TracingLock() {
-    id = TracingActivityThread.newEntityId();
     if (VmSettings.REPLAY) {
       replayCondition = super.newCondition();
     } else {
       replayCondition = null;
     }
-  }
-
-  public long getId() {
-    return id;
   }
 
   public synchronized boolean tracingIsLocked(final RecordOneEvent traceIsLocked) {
