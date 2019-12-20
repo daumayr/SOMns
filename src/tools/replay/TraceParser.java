@@ -227,7 +227,8 @@ public final class TraceParser implements Closeable {
           first = false;
         }
       }
-    } catch (IOException e) {
+    } catch (Throwable e) {
+      e.printStackTrace();
       throw new RuntimeException(e);
     }
 
@@ -255,7 +256,7 @@ public final class TraceParser implements Closeable {
 
     TraceRecord recordType = parseTable[type];// & (TraceRecord.EXTERNAL_BIT - 1)];
 
-    if (!scanning & first) {
+    if (!scanning && first) {
       assert recordType == TraceRecord.ACTIVITY_CONTEXT;
     }
 
@@ -325,9 +326,10 @@ public final class TraceParser implements Closeable {
               new ReplayRecord(eventData, recordType));
 
         }
-        assert b.position() == start + RecordEventNodes.TWO_EVENT_SIZE;
+        assert b.position() == start + RecordEventNodes.ONE_EVENT_SIZE;
         break;
       default:
+        Output.println("MISSING");
         assert false;
     }
 

@@ -19,12 +19,12 @@ public class ReplayData {
    * @param l
    * @param expectedNo The sequence number of the event to be performed.
    */
-  public static void replayDelayNumberedEvent(final PassiveEntityWithEvents pe,
-      final long passiveEntityId) {
+  public static void replayDelayNumberedEvent(final PassiveEntityWithEvents pe) {
 
     Activity reader = TracingActivityThread.currentThread().getActivity();
     ReplayRecord npr = reader.getNextReplayEvent();
-    assert npr != null : reader;
+
+    assert npr != null : reader.getId();
 
     try {
       while (pe.getNextEventNumber() != npr.eventNo) {
