@@ -76,18 +76,18 @@ SOM_DIR=$SCRIPT_PATH/../..
 
 
 echo   "===================== Actor Replay ====================="
-#for args in "${Savina[@]}"
-#do
-#  echo "$args"
-#  echo "Tracing:"
-#  $SOM_DIR/som -G -JXmx1500m -at core-lib/Benchmarks/AsyncHarness.ns Savina.$args
-#  echo ""
-#  echo "Replay:"
-#  $SOM_DIR/som -G -JXmx1500m -vmd -r core-lib/Benchmarks/AsyncHarness.ns Savina.$args
-#  echo ""
-#  echo "========================================================"
-#  echo ""
-#done
+for args in "${Savina[@]}"
+do
+  echo "$args"
+  echo "Tracing:"
+  $SOM_DIR/som -G -JXmx1500m -at core-lib/Benchmarks/AsyncHarness.ns Savina.$args
+  echo ""
+  echo "Replay:"
+  $SOM_DIR/som -G -JXmx1500m -vmd -r core-lib/Benchmarks/AsyncHarness.ns Savina.$args
+  echo ""
+  echo "========================================================"
+  echo ""
+done
 
 for args in "${Validation[@]}"
 do
