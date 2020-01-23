@@ -111,8 +111,7 @@ public abstract class ChannelPrimitives {
       return ActivityType.PROCESS;
     }
 
-    protected void beforeExec(final SInvokable disp) {
-    }
+    protected void beforeExec(final SInvokable disp) {}
 
     @Override
     public void run() {

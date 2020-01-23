@@ -46,8 +46,7 @@ public final class Transactions {
   private static Object globalCommitLock = new Object();
   private static long   version;
 
-  private Transactions() {
-  }
+  private Transactions() {}
 
   private abstract static class Change {
     abstract boolean hasChange();
