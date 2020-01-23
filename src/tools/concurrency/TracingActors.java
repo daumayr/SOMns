@@ -185,7 +185,7 @@ public class TracingActors {
     public ReplayActor(final VM vm) {
       super(vm);
 
-      if (VmSettings.REPLAY) {
+      if (VmSettings.REPLAY && VmSettings.SNAPSHOTS_ENABLED) {
         replayEvents = vm.getTraceParser().getReplayEventsForEntity(activityId);
 
         synchronized (actorList) {
