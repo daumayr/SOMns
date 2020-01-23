@@ -176,7 +176,7 @@ public final class Transactions {
           return false;
         }
 
-        tat.getNextReplayEvent();// consume event
+        tat.getNextReplayEvent(); // consume event
         version++;
       } else if (VmSettings.UNIFORM_TRACING) {
         recordCommit.record(version);
