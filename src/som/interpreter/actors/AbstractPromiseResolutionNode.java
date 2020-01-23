@@ -42,7 +42,7 @@ public abstract class AbstractPromiseResolutionNode extends QuaternaryExpression
   protected AbstractPromiseResolutionNode() {
     haltNode = insert(SuspendExecutionNodeGen.create(2, null));
 
-    if (VmSettings.ACTOR_TRACING) {
+    if (VmSettings.UNIFORM_TRACING) {
       tracePromiseResolution = new RecordOneEvent(TraceRecord.PROMISE_RESOLUTION);
       tracePromiseResolutionEnd = new RecordOneEvent(TraceRecord.PROMISE_RESOLUTION_END);
       tracePromiseChaining = new RecordOneEvent(TraceRecord.PROMISE_CHAINED);
@@ -140,7 +140,7 @@ public abstract class AbstractPromiseResolutionNode extends QuaternaryExpression
             ((SReplayPromise) promiseValue).consumeEventsForDelayedResolution();
           }
 
-          if (VmSettings.ACTOR_TRACING) {
+          if (VmSettings.UNIFORM_TRACING) {
             tracePromiseChaining.record(((STracingPromise) promiseValue).version);
             ((STracingPromise) promiseValue).version++;
           }

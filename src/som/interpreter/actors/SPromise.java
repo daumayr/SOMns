@@ -45,7 +45,7 @@ public class SPromise extends SObjectWithClass {
       return new SMedeorPromise(owner, haltOnResolver, haltOnResolution, section);
     } else if (VmSettings.REPLAY) {
       return new SReplayPromise(owner, haltOnResolver, haltOnResolution);
-    } else if (VmSettings.ACTOR_TRACING) {
+    } else if (VmSettings.UNIFORM_TRACING) {
       return new STracingPromise(owner, haltOnResolver, haltOnResolution);
     } else {
       return new SPromise(owner, haltOnResolver, haltOnResolution);
@@ -186,7 +186,7 @@ public class SPromise extends SObjectWithClass {
       remote.resolutionState = resolutionState;
     } else {
 
-      if (VmSettings.ACTOR_TRACING) {
+      if (VmSettings.UNIFORM_TRACING) {
         recordPromiseChaining.record(((STracingPromise) this).version);
         ((STracingPromise) this).version++;
       }
@@ -810,7 +810,7 @@ public class SPromise extends SObjectWithClass {
           }
         }
 
-        if (VmSettings.ACTOR_TRACING) {
+        if (VmSettings.UNIFORM_TRACING) {
           tracePromiseResolution2.record(((STracingPromise) p).version);
         }
 
@@ -824,7 +824,7 @@ public class SPromise extends SObjectWithClass {
         resolveChainedPromisesUnsync(type, p, result, current, actorPool, haltOnResolution,
             whenResolvedProfile, tracePromiseResolution2, tracePromiseResolutionEnd2);
 
-        if (VmSettings.ACTOR_TRACING) {
+        if (VmSettings.UNIFORM_TRACING) {
           tracePromiseResolutionEnd2.record(((STracingPromise) p).version);
         }
       }

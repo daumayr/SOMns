@@ -89,7 +89,7 @@ public abstract class EventualMessage {
 
   public RecordOneEvent getTracingNode() {
     assert onReceive != null;
-    assert VmSettings.ACTOR_TRACING;
+    assert VmSettings.UNIFORM_TRACING;
     ReceivedRootNode rrn = (ReceivedRootNode) onReceive.getRootNode();
     return rrn.messageTracer;
   }

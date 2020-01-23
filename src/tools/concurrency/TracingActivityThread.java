@@ -93,7 +93,7 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
       this.snapshotBuffer = new SnapshotBuffer((ActorProcessingThread) this);
     }
 
-    if (VmSettings.ACTOR_TRACING || VmSettings.KOMPOS_TRACING) {
+    if (VmSettings.UNIFORM_TRACING || VmSettings.KOMPOS_TRACING) {
       threadId = threadIdGen.getAndIncrement();
       traceBuffer = TraceBuffer.create(threadId);
       nextEntityId = 1 + (threadId << TraceData.ENTITY_ID_BITS);
@@ -174,7 +174,7 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
   @Override
   protected void onStart() {
     super.onStart();
-    if (VmSettings.ACTOR_TRACING || VmSettings.KOMPOS_TRACING) {
+    if (VmSettings.UNIFORM_TRACING || VmSettings.KOMPOS_TRACING) {
       TracingBackend.registerThread(this);
     }
     vm.enterContext();
@@ -182,7 +182,7 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
 
   @Override
   protected void onTermination(final Throwable exception) {
-    if (VmSettings.ACTOR_TRACING || VmSettings.KOMPOS_TRACING) {
+    if (VmSettings.UNIFORM_TRACING || VmSettings.KOMPOS_TRACING) {
       traceBuffer.returnBuffer(null);
       TracingBackend.addExternalData(externalData, this);
       TracingBackend.unregisterThread(this);
@@ -210,7 +210,7 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
   public static long newEntityId(final VM vm) {
     if (VmSettings.REPLAY && Thread.currentThread() instanceof TracingActivityThread) {
       return vm.getTraceParser().getReplayId();
-    } else if ((VmSettings.KOMPOS_TRACING | VmSettings.ACTOR_TRACING)
+    } else if ((VmSettings.KOMPOS_TRACING | VmSettings.UNIFORM_TRACING)
         && Thread.currentThread() instanceof TracingActivityThread) {
       TracingActivityThread t = TracingActivityThread.currentThread();
       return t.generateEntityId();

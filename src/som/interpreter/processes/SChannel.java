@@ -20,7 +20,7 @@ import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
 public class SChannel extends SAbstractObject {
 
   public static SChannel create() {
-    if (VmSettings.ACTOR_TRACING || VmSettings.KOMPOS_TRACING || VmSettings.REPLAY) {
+    if (VmSettings.UNIFORM_TRACING || VmSettings.KOMPOS_TRACING || VmSettings.REPLAY) {
       return new TracingChannel();
     } else {
       return new SChannel();
@@ -92,7 +92,7 @@ public class SChannel extends SAbstractObject {
 
       try {
         synchronized (this) {
-          if (VmSettings.ACTOR_TRACING) {
+          if (VmSettings.UNIFORM_TRACING) {
             traceRead.record(numReads);
             numReads++;
           }
@@ -167,7 +167,7 @@ public class SChannel extends SAbstractObject {
 
       try {
         synchronized (this) {
-          if (VmSettings.ACTOR_TRACING) {
+          if (VmSettings.UNIFORM_TRACING) {
             traceWrite.record(numWrites);
             numWrites++;
           }
