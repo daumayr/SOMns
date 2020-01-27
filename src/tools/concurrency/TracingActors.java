@@ -148,6 +148,7 @@ public class TracingActors {
         new PriorityQueue<>(new MessageComparator());
     private static Map<Long, ReplayActor>          actorList;
     private BiConsumer<Short, Integer>             dataSource;
+    public boolean                                 poisoned        = false;
 
     private final TraceParser traceParser;
 
@@ -236,8 +237,13 @@ public class TracingActors {
         appendToMailbox(msg);
       }
 
+      if (!this.poisoned && this.replayEvents.isEmpty()
+          && this.peekNextReplayEvent() == null) {
+        this.poisoned = true;
+      }
+
       // actor remains dormant until the expected message arrives
-      if ((!this.isExecuting) && this.replayCanProcess(msg)) {
+      if ((!this.isExecuting) && this.replayCanProcess(msg) && !this.poisoned) {
         isExecuting = true;
         execute(actorPool);
       }
@@ -309,6 +315,12 @@ public class TracingActors {
         Queue<EventualMessage> todo = determineNextMessages(a.orderedMessages);
 
         for (EventualMessage msg : todo) {
+          if (!a.poisoned && a.replayEvents.isEmpty()
+              && a.peekNextReplayEvent() == null) {
+            a.poisoned = true;
+            return;
+          }
+
           currentThread.currentMessage = msg;
           handleBreakpointsAndStepping(msg, dbg, a);
           msg.execute();
