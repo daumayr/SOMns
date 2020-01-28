@@ -42,27 +42,31 @@ public interface Activity {
   }
 
   default ReplayRecord getNextReplayEvent() {
-    Queue<ReplayRecord> q = getReplayEventBuffer();
-    if (q.isEmpty()) {
-      boolean more = getTraceParser().getMoreEventsForEntity(getId());
-      while (q.isEmpty() && more) {
-        more = getTraceParser().getMoreEventsForEntity(getId());
-      }
-    }
 
-    return q.remove();
+    Queue<ReplayRecord> q = getReplayEventBuffer();
+    synchronized (q) {
+      if (q.isEmpty()) {
+        boolean more = getTraceParser().getMoreEventsForEntity(getId());
+        while (q.isEmpty() && more) {
+          more = getTraceParser().getMoreEventsForEntity(getId());
+        }
+      }
+      return q.remove();
+    }
   }
 
   default ReplayRecord peekNextReplayEvent() {
     Queue<ReplayRecord> q = getReplayEventBuffer();
-    if (q.isEmpty()) {
-      boolean more = getTraceParser().getMoreEventsForEntity(getId());
-      while (q.isEmpty() && more) {
-        more = getTraceParser().getMoreEventsForEntity(getId());
+    synchronized (q) {
+      if (q.isEmpty()) {
+        boolean more = getTraceParser().getMoreEventsForEntity(getId());
+        while (q.isEmpty() && more) {
+          more = getTraceParser().getMoreEventsForEntity(getId());
+        }
       }
-    }
 
-    return q.peek();
+      return q.peek();
+    }
   }
 
   default LinkedList<ReplayRecord> getReplayEventBuffer() {

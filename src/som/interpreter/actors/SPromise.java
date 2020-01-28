@@ -504,7 +504,12 @@ public class SPromise extends SObjectWithClass {
         assert this.eventsForDelayedResolution != null;
         assert this.eventsForDelayedResolution.size() >= 2 : ""
             + this.eventsForDelayedResolution.size();
-        current.getReplayEventBuffer().addAll(0, this.eventsForDelayedResolution);
+
+        LinkedList<ReplayRecord> eb = current.getReplayEventBuffer();
+        synchronized (eb) {
+          eb.addAll(0, this.eventsForDelayedResolution);
+        }
+
         ReplayRecord npr = current.getNextReplayEvent();
         assert npr.type == TraceRecord.PROMISE_RESOLUTION : " was " + npr.type;
 
