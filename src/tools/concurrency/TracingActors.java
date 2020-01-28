@@ -38,7 +38,7 @@ public class TracingActors {
 
     public TracingActor(final VM vm) {
       super(vm);
-      this.activityId = TracingActivityThread.newEntityId(vm);
+      this.activityId = TracingActivityThread.newEntityId();
       this.version = 0;
       assert this.activityId >= 0;
       if (VmSettings.SNAPSHOTS_ENABLED) {
@@ -255,11 +255,6 @@ public class TracingActors {
       }
 
       return msg.getMessageId() == this.version;
-    }
-
-    @Override
-    public int addChild() {
-      return children++;
     }
 
     private static class ExecAllMessagesReplay extends ExecAllMessages {

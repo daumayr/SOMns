@@ -221,11 +221,6 @@ public final class TaskThreads {
     }
 
     @Override
-    public int addChild() {
-      return children++;
-    }
-
-    @Override
     public LinkedList<ReplayRecord> getReplayEventBuffer() {
       return this.replayEvents;
     }

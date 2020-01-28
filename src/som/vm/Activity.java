@@ -27,13 +27,6 @@ public interface Activity {
     return 0;
   }
 
-  /**
-   * Used in replay to keep track of created children.
-   */
-  default int addChild() {
-    return 0;
-  }
-
   ActivityType getType();
 
   default TraceParser getTraceParser() {

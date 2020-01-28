@@ -163,7 +163,7 @@ public abstract class ChannelPrimitives {
         final VM vm) {
       super(obj);
       this.stopOnRootNode = stopOnRootNode;
-      processId = TracingActivityThread.newEntityId(vm);
+      processId = TracingActivityThread.newEntityId();
       this.vm = vm;
     }
 
@@ -217,11 +217,6 @@ public abstract class ChannelPrimitives {
         final VM vm) {
       super(obj, stopOnRootNode, vm);
       replayEvents = vm.getTraceParser().getReplayEventsForEntity(processId);
-    }
-
-    @Override
-    public int addChild() {
-      return children++;
     }
 
     @Override
