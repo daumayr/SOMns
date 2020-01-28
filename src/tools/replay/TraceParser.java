@@ -234,7 +234,7 @@ public final class TraceParser implements Closeable {
     if (scanning) {
       long end = System.currentTimeMillis();
       Output.println("Trace with " + ctx.parsedMessages + " Messages and " + ctx.parsedEntities
-          + " Actors sucessfully scanned in " + (end - ctx.startTime) + "ms !");
+          + " Activities sucessfully scanned in " + (end - ctx.startTime) + "ms !");
     }
   }
 
