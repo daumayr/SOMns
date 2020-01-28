@@ -151,13 +151,16 @@ public final class TraceParser implements Closeable {
 
     Subtrace entityLocation;
 
-    final long startTime      = System.currentTimeMillis();
-    long       parsedMessages = 0;
-    long       parsedEntities = 0;
+    final long startTime = System.currentTimeMillis();
+    long[]     metrics   = new long[parseTable.length];
 
     EventParseContext(final EntityNode context) {
       this.currentEntity = context;
       this.once = true;
+    }
+
+    public long getMetric(final TraceRecord tr) {
+      return metrics[tr.value];
     }
   }
 
@@ -211,7 +214,8 @@ public final class TraceParser implements Closeable {
 
     if (scanning) {
       long end = System.currentTimeMillis();
-      Output.println("Trace with " + ctx.parsedMessages + " Messages and " + ctx.parsedEntities
+      Output.println("Trace with " + ctx.getMetric(TraceRecord.MESSAGE) + " Messages and "
+          + ctx.getMetric(TraceRecord.ACTIVITY_CREATION)
           + " Activities sucessfully scanned in " + (end - ctx.startTime) + "ms !");
     }
   }
@@ -241,6 +245,7 @@ public final class TraceParser implements Closeable {
           if (ctx.currentEntity != null) {
             ctx.entityLocation.length = startPosition + start - ctx.entityLocation.startOffset;
           }
+          ctx.metrics[type]++;
           ctx.ordering = Short.toUnsignedInt(b.getShort());
           long currentEntityId = getId(b, Long.BYTES);
           ctx.currentEntity = getOrCreateEntityEntry(recordType, currentEntityId);
@@ -263,6 +268,9 @@ public final class TraceParser implements Closeable {
         }
         break;
       case SYSTEM_CALL:
+        if (scanning) {
+          ctx.metrics[type]++;
+        }
         b.getInt();
         break;
 
@@ -280,10 +288,13 @@ public final class TraceParser implements Closeable {
       case TRANSACTION_COMMIT:
       case ACTIVITY_CREATION:
         long eventData = b.getLong();
+
         if (!scanning) {
           ctx.currentEntity.addReplayEvent(
               new ReplayRecord(eventData, recordType));
 
+        } else {
+          ctx.metrics[type]++;
         }
         assert b.position() == start + RecordEventNodes.ONE_EVENT_SIZE;
         break;
