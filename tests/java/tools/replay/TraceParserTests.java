@@ -30,9 +30,9 @@ public class TraceParserTests {
       "fj-throughput"};
 
   private static final Object[] EXPECTED_RESULTS = new Object[] {
-      new Object[] {9, 112, 60},
-      new Object[] {33, 3380, 3197},
-      new Object[] {6, 115, 15}
+      new Object[] {9, 120, 60},
+      new Object[] {33, 3412, 3197},
+      new Object[] {6, 120, 15}
   };
 
   private static final int[] BUFFER_SIZES =
