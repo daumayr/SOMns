@@ -147,6 +147,8 @@ public abstract class AbstractPromiseResolutionNode extends QuaternaryExpression
 
           if (VmSettings.UNIFORM_TRACING) {
             tracePromiseChaining.record(((STracingPromise) promiseValue).version);
+            ((STracingPromise) promiseToBeResolved).setResolvingActorForSnapshot(
+                ((STracingPromise) promiseValue).version);
             ((STracingPromise) promiseValue).version++;
           }
           promiseValue.addChainedPromise(promiseToBeResolved);

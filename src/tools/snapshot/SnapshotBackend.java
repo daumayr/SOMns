@@ -29,6 +29,7 @@ import som.interpreter.actors.EventualMessage;
 import som.interpreter.actors.EventualMessage.PromiseMessage;
 import som.interpreter.actors.SPromise;
 import som.interpreter.actors.SPromise.SResolver;
+import som.interpreter.actors.SPromise.STracingPromise;
 import som.interpreter.nodes.InstantiationNode.ClassInstantiationNode;
 import som.interpreter.objectstorage.ClassFactory;
 import som.vm.VmSettings;
@@ -36,6 +37,7 @@ import som.vmobjects.SClass;
 import som.vmobjects.SInvokable;
 import som.vmobjects.SObjectWithClass;
 import som.vmobjects.SSymbol;
+import tools.concurrency.TracingActivityThread;
 import tools.concurrency.TracingActors.ReplayActor;
 import tools.concurrency.TracingActors.TracingActor;
 import tools.concurrency.TracingBackend;
@@ -241,6 +243,19 @@ public class SnapshotBackend {
     return mixin;
   }
 
+  public static long getFrameLoction(final Object[] objects) {
+    assert snapshot != null;
+    assert snapshot.frameLocations != null;
+    return snapshot.frameLocations.get(objects, -1l);
+  }
+
+  public static void setFrameLoction(final Object[] objects, final long location) {
+    assert snapshot != null;
+    assert snapshot.frameLocations != null;
+
+    snapshot.frameLocations.put(objects, location);
+  }
+
   public static SInvokable lookupInvokable(final SSymbol sym) {
     assert VmSettings.TRACK_SNAPSHOT_ENTITIES;
     SInvokable result = probe.lookupMethod(sym);
@@ -339,11 +354,12 @@ public class SnapshotBackend {
     return valueBuffer;
   }
 
-  public static Actor lookupActor(final int actorId) {
+  public static Actor lookupActor(final long resolver) {
+    assert resolver != -1;
     if (VmSettings.REPLAY) {
-      ReplayActor ra = ReplayActor.getActorWithId(actorId);
+      ReplayActor ra = ReplayActor.getActorWithId(resolver);
       if (ra == null) {
-        ra = new ReplayActor(vm, actorId);
+        ra = new ReplayActor(vm, resolver);
       }
       return ra;
     } else {
@@ -369,6 +385,8 @@ public class SnapshotBackend {
    */
   @TruffleBoundary
   public static void deferSerialization(final TracingActor sr) {
+    assert snapshot != null;
+    assert snapshot.deferredSerializations != null;
     snapshot.deferredSerializations.put(sr, 0);
   }
 
@@ -390,6 +408,13 @@ public class SnapshotBackend {
     }
   }
 
+  public static void registerActorVersion(final long actorId, final long version) {
+    synchronized (snapshot.actorVersions) {
+      snapshot.actorVersions.add(actorId);
+      snapshot.actorVersions.add(version);
+    }
+  }
+
   public static void registerResultPromise(final SPromise promise) {
     assert resultPromise == null;
     resultPromise = promise;
@@ -399,6 +424,7 @@ public class SnapshotBackend {
       final SnapshotHeap sh) {
 
     long resolverLocation = SResolver.getResolverClass().serialize(resolver, sh);
+    assert snapshot.version == sh.getSnapshotVersion();
 
     if (!resolver.getPromise().isCompleted()) {
       Output.println("skipped!!");
@@ -409,7 +435,7 @@ public class SnapshotBackend {
 
     long resultLocation = Types.getClassOf(result).serialize(result, sh);
 
-    SnapshotBuffer sb = sh.getBuffer((Long.BYTES * 2) + Integer.BYTES + 1);
+    SnapshotBuffer sb = sh.getBuffer((Long.BYTES * 3) + 1);
     int base = sb.reserveSpace((Long.BYTES * 2) + Integer.BYTES + 1);
 
     synchronized (snapshot.lostResolutions) {
@@ -418,55 +444,105 @@ public class SnapshotBackend {
 
     sb.putLongAt(base, resolverLocation);
     sb.putLongAt(base + Long.BYTES, resultLocation);
-    sb.putIntAt(base + (Long.BYTES * 2),
-        ((TracingActor) sh.getOwner().getCurrentActor()).getActorId());
-    sb.putByteAt(base + (Long.BYTES * 2) + Integer.BYTES,
+    sb.putLongAt(base + (Long.BYTES * 2),
+        ((TracingActor) sh.getOwner().getCurrentActor()).getId());
+    sb.putByteAt(base + (Long.BYTES * 3),
         (byte) resolver.getPromise().getResolutionStateUnsync().ordinal());
 
   }
 
-  public static void registerLostMessage(final PromiseMessage pm, final SPromise promise,
-      final SnapshotHeap sh) {
-    if (snapshot == null || pm.getOriginalSnapshotPhase() == snapshotVersion) {
+  public static void registerLostMessage(final PromiseMessage pm, final SPromise promise) {
+
+    if (snapshot == null
+        || pm.getOriginalSnapshotPhase() == TracingActivityThread.currentThread()
+                                                                 .getSnapshotId()) {
       return;
     }
+    SnapshotHeap sh = TracingActivityThread.currentThread().getSnapshotHeapWithoutUpdate();
 
-    // Output.println("Lost Message: " + System.identityHashCode(pm) + " " + pm);
-    SnapshotBuffer sb = sh.getBuffer(Long.BYTES * 2);
-    int start = sb.reserveSpace(Long.BYTES * 2);
+    SnapshotBuffer sb = sh.getBuffer(Long.BYTES * 3);
+    int start = sb.reserveSpace(Long.BYTES * 3);
 
     // Messages is not going to be captured by the receiver, hence we can just serialize it
     // here. Multi resolution is not allowed -> serialized once.
 
     long loc = pm.forceSerialize(sh);
 
-    // Output.println("LOST:" + loc);
+    sb.putLongAt(start, loc);
+    // Promise itself has to be far reffed for cases where resolver is not the owner of the
+    // promise.
+    ((TracingActor) promise.getOwner()).farReference(promise, sb, start + Long.BYTES);
+    sb.putLongAt(start + Long.BYTES + Long.BYTES, pm.getMessageId());
+    synchronized (snapshot.lostMessages) {
+      long l = sb.calculateReference(start);
+      // Output.println("Lost Msg: " + l + " in " + sh.getSnapshotVersion() + " " + pm + " "
+      // + snapshot.version);
+      snapshot.lostMessages.add(l);
+    }
+  }
+
+  public static void registerLostErrorMessage(final PromiseMessage pm,
+      final SPromise promise) {
+
+    if (snapshot == null
+        || pm.getOriginalSnapshotPhase() == TracingActivityThread.currentThread()
+                                                                 .getSnapshotId()) {
+      return;
+    }
+    SnapshotHeap sh = TracingActivityThread.currentThread().getSnapshotHeapWithoutUpdate();
+
+    SnapshotBuffer sb = sh.getBuffer(Long.BYTES * 3);
+    int start = sb.reserveSpace(Long.BYTES * 3);
+
+    // Messages is not going to be captured by the receiver, hence we can just serialize it
+    // here. Multi resolution is not allowed -> serialized once.
+
+    long loc = pm.forceSerialize(sh);
 
     sb.putLongAt(start, loc);
     // Promise itself has to be far reffed for cases where resolver is not the owner of the
     // promise.
     ((TracingActor) promise.getOwner()).farReference(promise, sb, start + Long.BYTES);
-
-    snapshot.lostMessages.add(sb.calculateReference(start));
+    sb.putLongAt(start + Long.BYTES + Long.BYTES, pm.getMessageId());
+    synchronized (snapshot.lostErrorMessages) {
+      long l = sb.calculateReference(start);
+      // Output.println("Lost Msg: " + l + " in " + sh.getSnapshotVersion() + " " + pm + " "
+      // + snapshot.version);
+      snapshot.lostErrorMessages.add(l);
+    }
   }
 
-  public static void registerLostChain(final SPromise chained, final SPromise promise,
-      final SnapshotHeap sh) {
-    if (snapshot == null) {
+  public static void registerLostChain(final STracingPromise chained,
+      final STracingPromise promise) {
+    TracingActivityThread tat = TracingActivityThread.currentThread();
+    SnapshotHeap sh;
+
+    if (snapshot == null || !chained.canBeLost()) {// || snapshotVersion !=
+                                                   // sh.getSnapshotVersion()) {
       return;
     }
 
-    SnapshotBuffer sb = sh.getBuffer(Long.BYTES * 2);
-    int start = sb.reserveSpace(Long.BYTES * 2);
+    if (tat.getNextSnapshotHeap().snapshotVersion == snapshotVersion) {
+      sh = tat.getNextSnapshotHeap();
+    } else {
+      sh = tat.getSnapshotHeapWithoutUpdate();
+    }
 
-    // Output.println("Lost Chain: " + chained);
+    SnapshotBuffer sb = sh.getBuffer(Long.BYTES * 3);
+    int start = sb.reserveSpace(Long.BYTES * 3);
+    chained.getResolvingActor();// version promise was chained at is stored there temporarily.
 
     // delegate to owners
     ((TracingActor) chained.getOwner()).farReference(chained, sb, start);
     ((TracingActor) promise.getOwner()).farReference(promise, sb, start + Long.BYTES);
+    sb.putLongAt(start + Long.BYTES + Long.BYTES, chained.getResolvingActor());
 
     // TODO own infrastructure
-    snapshot.lostMessages.add(sb.calculateReference(start));
+    synchronized (snapshot.lostChains) {
+      long loc = sb.calculateReference(start);
+      // Output.println("Lost Chain: " + loc + " in " + sh.getSnapshotVersion());
+      snapshot.lostChains.add(sb.calculateReference(start));
+    }
   }
 
   public static void registerClassLocation(final int identity, final long classLocation) {
@@ -533,12 +609,12 @@ public class SnapshotBackend {
           SnapshotBackend.resultPromise, snapshotVersion);
       if (location == -1) {
         PromiseSerializationNodes.ensurePromiseSerialized(SnapshotBackend.resultPromise,
-            apt.getSnapshotHeap());
+            apt.getSnapshotHeapWithoutUpdate());
       }
 
       if (!snapshot.deferredSerializations.isEmpty()) {
         TracingActor currentActor = (TracingActor) apt.getCurrentActor();
-        currentActor.handleObjectsReferencedFromFarRefs(apt.getSnapshotHeap());
+        currentActor.handleObjectsReferencedFromFarRefs(apt.getSnapshotHeapWithoutUpdate());
 
         for (TracingActor ta : snapshot.deferredSerializations.keySet()) {
           snapshot.deferredSerializations.remove(ta);
@@ -584,7 +660,8 @@ public class SnapshotBackend {
         if (actor.isReportDeferredDone()) {
           ActorProcessingThread apt =
               (ActorProcessingThread) ActorProcessingThread.currentThread();
-          actor.handleObjectsReferencedFromFarRefs(apt.getSnapshotHeap());
+          Output.println("done deffered");
+          actor.handleObjectsReferencedFromFarRefs(apt.getSnapshotHeapWithoutUpdate());
           openDeferrals.decrementAndGet();
         }
 

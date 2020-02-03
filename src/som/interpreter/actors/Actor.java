@@ -245,7 +245,7 @@ public class Actor implements Activity {
   public static final class ExecutorRootNode extends RootNode {
 
     @Child protected RecordOneEvent recordPromiseChaining;
-    @Child protected ClassPrim classPrim;
+    @Child protected ClassPrim      classPrim;
 
     private ExecutorRootNode(final SomLanguage language) {
       super(language);
@@ -305,6 +305,7 @@ public class Actor implements Activity {
       t.currentlyExecutingActor = actor;
 
       if (VmSettings.UNIFORM_TRACING) {
+        // this is odd
         ActorExecutionTrace.recordActivityContext(actor, tracer);
       } else if (VmSettings.KOMPOS_TRACING) {
         KomposTrace.currentActivity(actor);
@@ -312,6 +313,14 @@ public class Actor implements Activity {
 
       if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.SNAPSHOT_REPLAY) {
         SnapshotHeap sh = t.getSnapshotHeap();
+        TracingActor owner = (TracingActor) actor;
+
+        if (VmSettings.UNIFORM_TRACING
+            && owner.snapshotPhase != sh.getSnapshotVersion()) {
+          owner.snapshotPhase = sh.getSnapshotVersion();
+          SnapshotBackend.registerActorVersion(owner.getId(), owner.msgCnt);
+        }
+
         ((TracingActor) actor).handleObjectsReferencedFromFarRefs(sh,
             ((ExecutorRootNode) executorRoot.getRootNode()).classPrim);
         if (((TracingActor) actor).isReportDeferredDone()) {
@@ -396,7 +405,7 @@ public class Actor implements Activity {
       return true;
     }
 
-    public TraceActorContextNode getActorContextNode() {
+    public TraceContextNode getActorContextNode() {
       return tracer;
     }
   }
@@ -411,7 +420,8 @@ public class Actor implements Activity {
   }
 
   @Override
-  public void setStepToNextTurn(final boolean val) {}
+  public void setStepToNextTurn(final boolean val) {
+  }
 
   public static final class ActorProcessingThreadFactory
       implements ForkJoinWorkerThreadFactory {

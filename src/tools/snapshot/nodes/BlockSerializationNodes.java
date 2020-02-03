@@ -166,6 +166,11 @@ public abstract class BlockSerializationNodes {
     @Specialization
     public long serialize(final SBlock block, final SnapshotHeap sh) {
       MaterializedFrame frame = block.getContext();
+      long loc = SnapshotBackend.getFrameLoction(frame.getArguments());
+      if (loc != -1) {
+        return loc;
+      }
+
       Object[] args = frame.getArguments();
 
       List<? extends FrameSlot> slots = getFrameslots();
@@ -178,6 +183,9 @@ public abstract class BlockSerializationNodes {
       int start =
           sb.reserveSpace(2 + ((args.length + slotCnt) * Long.BYTES));
       int base = start;
+
+      loc = sb.calculateReferenceB(start);
+      SnapshotBackend.setFrameLoction(frame.getArguments(), loc);
 
       sb.putByteAt(base, (byte) args.length);
       base++;
@@ -243,7 +251,7 @@ public abstract class BlockSerializationNodes {
         // we can get the frame from the invokables root node
       }
       base += j * Long.BYTES;
-      return sb.calculateReferenceB(start);
+      return loc;
     }
 
     @Override

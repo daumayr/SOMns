@@ -11,15 +11,18 @@ import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.PriorityQueue;
+import java.util.LinkedList;
 
 import org.graalvm.collections.EconomicMap;
 
+import som.Output;
 import som.VM;
 import som.interpreter.actors.EventualMessage;
+import som.interpreter.actors.EventualMessage.PromiseCallbackMessage;
 import som.interpreter.actors.EventualMessage.PromiseMessage;
 import som.interpreter.actors.SPromise;
 import som.interpreter.actors.SPromise.Resolution;
+import som.interpreter.actors.SPromise.SReplayPromise;
 import som.interpreter.actors.SPromise.SResolver;
 import som.interpreter.actors.SPromise.STracingPromise;
 import som.vm.Symbols;
@@ -37,21 +40,23 @@ public final class SnapshotParser {
 
   private static SnapshotParser parser;
 
-  private EconomicMap<Long, Long>                              heapOffsets;
-  private EconomicMap<Integer, PriorityQueue<MessageLocation>> messageLocations;
-  private SPromise                                             resultPromise;
-  private ReplayActor                                          currentActor;
-  private VM                                                   vm;
-  private EconomicMap<Integer, Long>                           classLocations;
-  private DeserializationBuffer                                db;
-  private int                                                  objectcnt;
-  private HashSet<EventualMessage>                             sentPMsgs;
-  private HashSet<Long>                                        messagel;
+  private EconomicMap<Long, Long>             heapOffsets;
+  private EconomicMap<Long, LinkedList<Long>> messageLocations;
+  private EconomicMap<Long, Long>             actorVersions;
+  private SPromise                            resultPromise;
+  private ReplayActor                         currentActor;
+  private VM                                  vm;
+  private EconomicMap<Integer, Long>          classLocations;
+  private DeserializationBuffer               db;
+  private int                                 objectcnt;
+  private HashSet<EventualMessage>            sentPMsgs;
+  private HashSet<Long>                       messagel;
 
   private SnapshotParser(final VM vm) {
     this.vm = vm;
     this.heapOffsets = EconomicMap.create();
     this.messageLocations = EconomicMap.create();
+    this.actorVersions = EconomicMap.create();
     this.classLocations = EconomicMap.create();
     this.sentPMsgs = new HashSet<>();
     this.messagel = new HashSet<>();
@@ -86,16 +91,28 @@ public final class SnapshotParser {
       long numMessages = b.getLong() / 2;
       for (int i = 0; i < numMessages; i++) {
         ensureRemaining(Long.BYTES * 2, b, channel);
-        long messageIdentifier = b.getLong();
-        int actorId = (int) (messageIdentifier >> 32);
-        int msgNo = (int) messageIdentifier;
+        long actorId = b.getLong();
         long location = b.getLong();
 
         if (!messageLocations.containsKey(actorId)) {
-          messageLocations.put(actorId, new PriorityQueue<>());
+          messageLocations.put(actorId, new LinkedList<>());
         }
-        messageLocations.get(actorId).add(new MessageLocation(msgNo, location));
+        messageLocations.get(actorId).add(location);
         messagel.add(location);
+      }
+
+      long numActors = b.getLong() / 2;
+      for (int i = 0; i < numActors; i++) {
+        ensureRemaining(Long.BYTES * 2, b, channel);
+        long actorId = b.getLong();
+        long version = b.getLong();
+
+        // Output.println("Actor " + actorId + " starting at " + version);
+        actorVersions.put(actorId, version);
+
+        if (actorId == 0 && vm.getMainActor() != null) {
+          ((ReplayActor) vm.getMainActor()).setInitialMainActorVersion((int) version);
+        }
       }
 
       long numOuters = b.getLong();
@@ -122,6 +139,22 @@ public final class SnapshotParser {
         lostMessages.add(entryLoc);
       }
 
+      long numEMsgs = b.getLong();
+      ArrayList<Long> lostErrorMessages = new ArrayList<>();
+      for (int i = 0; i < numEMsgs; i++) {
+        ensureRemaining(Long.BYTES, b, channel);
+        long entryLoc = b.getLong();
+        lostErrorMessages.add(entryLoc);
+      }
+
+      long numChains = b.getLong();
+      ArrayList<Long> lostChains = new ArrayList<>();
+      for (int i = 0; i < numChains; i++) {
+        ensureRemaining(Long.BYTES, b, channel);
+        long entryLoc = b.getLong();
+        lostChains.add(entryLoc);
+      }
+
       ensureRemaining(Long.BYTES * 2, b, channel);
       long resultPromiseLocation = b.getLong();
       long numHeaps = b.getLong();
@@ -136,7 +169,7 @@ public final class SnapshotParser {
       // inflating the snapshot.
 
       // make sure all the actors exist, we resuse the mapping in ReplayActor
-      for (int id : messageLocations.getKeys()) {
+      for (long id : messageLocations.getKeys()) {
         SnapshotBackend.lookupActor(id);
       }
 
@@ -145,15 +178,17 @@ public final class SnapshotParser {
 
       // now let's go through the message list actor by actor, deserialize each message, and
       // add it to the actors mailbox.
-      for (int id : messageLocations.getKeys()) {
-        PriorityQueue<MessageLocation> locations = messageLocations.get(id);
-        MessageLocation ml = locations.poll();
+      for (long id : messageLocations.getKeys()) {
+        LinkedList<Long> locations = messageLocations.get(id);
+        Long ml = locations.poll();
+
         while (ml != null) {
           // Deserialilze message
           currentActor = ReplayActor.getActorWithId(id);
-          EventualMessage em = (EventualMessage) db.deserializeWithoutContext(ml.location);
+          EventualMessage em = (EventualMessage) db.deserializeWithoutContext(ml);
           db.doUnserialized();
 
+          // Output.println(currentActor + " " + em + " " + em.getMessageId());
           if (em instanceof PromiseMessage) {
             if (em.getArgs()[0] instanceof SPromise) {
               STracingPromise prom = (STracingPromise) ((PromiseMessage) em).getPromise();
@@ -163,10 +198,22 @@ public final class SnapshotParser {
               } else {
                 messagesNeedingFixup.add((PromiseMessage) em);
               }
+            } else if (em instanceof PromiseCallbackMessage) {
+              // if (em.getArgs()[1] instanceof SPromise) {
+              STracingPromise prom = (STracingPromise) ((PromiseMessage) em).getPromise();
+              if (prom.isCompleted()) {
+                ((PromiseCallbackMessage) em).resolve(prom.getValueForSnapshot(),
+                    currentActor,
+                    SnapshotBackend.lookupActor(prom.getResolvingActor()));
+              } else {
+                messagesNeedingFixup.add((PromiseMessage) em);
+              }
+              // }
             } else if (((PromiseMessage) em).getPromise()
                                             .getValueForSnapshot() != em.getArgs()[0]) {
               // non promise deviating from promise result
-              System.out.println("PROBLEM");
+              Output.println("PROBLEM " + ((PromiseMessage) em).getPromise()
+                  + " " + em.getArgs()[0]);
             }
           }
 
@@ -178,7 +225,9 @@ public final class SnapshotParser {
             cp.unresolveFromSnapshot(Resolution.UNRESOLVED);
           }
 
+          // Output.println(currentActor + " " + em + " " + em.getMessageId());
           currentActor.sendSnapshotMessage(em);
+
           ml = locations.poll();
         }
       }
@@ -187,23 +236,68 @@ public final class SnapshotParser {
         db.position(entry);
         long messageLoc = db.getLong();
         long promiseLoc = db.getLong();
+        long version = db.getLong();
 
-        // Output.println("found: " + messageLoc);
-        Object o = db.deserializeWithoutContext(messageLoc);
+        PromiseMessage pm = (PromiseMessage) db.deserializeWithoutContext(messageLoc);
+        SReplayPromise prom = (SReplayPromise) db.deserializeWithoutContext(promiseLoc);
+        pm.setIdSnapshot(version);
 
-        STracingPromise prom = (STracingPromise) db.deserializeWithoutContext(promiseLoc);
-        // STracingPromise prom = (STracingPromise) pm.getPromise();
-
-        if (o instanceof PromiseMessage) {
-          PromiseMessage pm = (PromiseMessage) o;
-          if (prom.isCompleted()) {
-            prom.unresolveFromSnapshot(Resolution.UNRESOLVED);
-          }
-          prom.registerWhenResolvedUnsynced(pm);
-        } else {
-          STracingPromise chained = (STracingPromise) o;
-          prom.addChainedPromise(chained);
+        if (prom.isCompleted()) {
+          // Output.println("unresolving: " + prom);
+          prom.unresolveFromSnapshot(Resolution.UNRESOLVED);
         }
+        // Output.println(
+        // "attaching msg " + pm + " to " + prom + System.identityHashCode(prom) + " " +
+        // pm.getMessageId());
+
+        prom.registerOnResolvedSnapshot(pm, prom.isUnresolved());
+      }
+
+      for (long entry : lostErrorMessages) {
+        db.position(entry);
+        long messageLoc = db.getLong();
+        long promiseLoc = db.getLong();
+        long version = db.getLong();
+
+        PromiseMessage pm = (PromiseMessage) db.deserializeWithoutContext(messageLoc);
+        SReplayPromise prom = (SReplayPromise) db.deserializeWithoutContext(promiseLoc);
+        pm.setIdSnapshot(version);
+
+        if (prom.isCompleted()) {
+          prom.unresolveFromSnapshot(Resolution.UNRESOLVED);
+        }
+        // Output.println(
+        // "attaching msg " + pm + " to " + prom + System.identityHashCode(prom) + " " +
+        // pm.getMessageId());
+
+        prom.registerOnErrorSnapshot(pm, prom.isUnresolved());
+      }
+
+      for (long entry : lostChains) {
+        db.position(entry);
+        long chainedLoc = db.getLong();
+        long promiseLoc = db.getLong();
+        long prio = db.getLong();
+
+        SReplayPromise chained = (SReplayPromise) db.deserializeWithoutContext(chainedLoc);
+        SReplayPromise prom = (SReplayPromise) db.deserializeWithoutContext(promiseLoc);
+        chained.setPriority(prio);
+
+        if (chained.isCompleted()) {
+          chained.unresolveFromSnapshot(Resolution.UNRESOLVED);
+        }
+
+        // Output.println("LOST CHAIN " + entry);
+        // Output.println("chaining " + chained + System.identityHashCode(chained) + " to "
+        // + prom + System.identityHashCode(prom));
+        if (prom.isCompleted()) {
+          chained.resolveFromSnapshot(prom.getValueForSnapshot(),
+              prom.getResolutionStateUnsync(),
+              SnapshotBackend.lookupActor(prom.getResolvingActor()), prom.isUnresolved());
+        }
+
+        prom.registerChainedPromiseSnapshot(chained,
+            true);
       }
 
       for (long entry : lostResolutions) {
@@ -211,7 +305,7 @@ public final class SnapshotParser {
         long resolverLoc = db.getLong();
         long resultLoc = db.getLong();
 
-        int resolvingActor = db.getInt();
+        long resolvingActor = db.getLong();
         byte resolutionState = db.get();
 
         SResolver resolver = (SResolver) db.deserializeWithoutContext(resolverLoc);
@@ -219,15 +313,23 @@ public final class SnapshotParser {
 
         STracingPromise prom = (STracingPromise) resolver.getPromise();
         if (!prom.isCompleted()) {
+          // Output.println("LOST RESOLUTION " + System.identityHashCode(prom) + " " + result
+          // + " by " + resolvingActor);
           prom.resolveFromSnapshot(result, Resolution.values()[resolutionState],
               SnapshotBackend.lookupActor(resolvingActor), true);
           prom.setResolvingActorForSnapshot(resolvingActor);
+        } else {
+          // Output.println(System.identityHashCode(prom) +
+          // " allready resolved with " + prom.getValueForSnapshot() + " vs " + result);
+          // Output.println(System.identityHashCode(prom.getValueForSnapshot()) + " vs "
+          // + System.identityHashCode(result));
         }
       }
 
       for (PromiseMessage em : messagesNeedingFixup) {
         STracingPromise prom = (STracingPromise) em.getPromise();
         if (em.getArgs()[0] instanceof SPromise) {
+          Output.println("fixed up message" + em);
           em.resolve(prom.getValueForSnapshot(), prom.getOwner(),
               SnapshotBackend.lookupActor(prom.getResolvingActor()));
         }
@@ -249,7 +351,9 @@ public final class SnapshotParser {
       throw new RuntimeException(e);
     } finally {
       // prevent usage after closing
-      objectcnt = db.getNumObjects();
+      if (db != null) {
+        objectcnt = db.getNumObjects();
+      }
       db = null;
     }
   }
@@ -281,6 +385,13 @@ public final class SnapshotParser {
     assert parser.heapOffsets.containsKey(
         threadId) : "Probably some actor didn't get to finish it's todo list";
     return parser.heapOffsets.get(threadId);
+  }
+
+  public static long getVersionForActor(final long actorId) {
+    if (parser == null) {
+      return 0;
+    }
+    return parser.actorVersions.get(actorId, 0L);
   }
 
   public static SObjectWithClass getOuterForClass(final int identity) {
@@ -339,21 +450,6 @@ public final class SnapshotParser {
 
   public static int getObjectCnt() {
     return parser.objectcnt;
-  }
-
-  private class MessageLocation implements Comparable<MessageLocation> {
-    final int  msgNo;
-    final long location;
-
-    MessageLocation(final int msgNo, final long location) {
-      this.msgNo = msgNo;
-      this.location = location;
-    }
-
-    @Override
-    public int compareTo(final MessageLocation o) {
-      return Integer.compare(msgNo, o.msgNo);
-    }
   }
 
   public static class EnclosingObjectFixup extends FixupInformation {

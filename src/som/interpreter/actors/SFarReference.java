@@ -15,6 +15,7 @@ public final class SFarReference extends SAbstractObject {
   private final Object value;
 
   public SFarReference(final Actor actor, final Object value) {
+    assert actor != null;
     this.actor = actor;
     this.value = value;
     assert !(value instanceof SFarReference);
@@ -43,6 +44,8 @@ public final class SFarReference extends SAbstractObject {
 
   @Override
   public String toString() {
+    assert value != null;
+    assert actor != null;
     return "FarRef[" + value.toString() + ", " + actor.toString() + "]";
   }
 

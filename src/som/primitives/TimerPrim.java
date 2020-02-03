@@ -29,8 +29,8 @@ import som.vmobjects.SBlock;
 import som.vmobjects.SInvokable;
 import som.vmobjects.SSymbol;
 import tools.concurrency.TracingActors.ReplayActor;
-import tools.replay.TraceParser;
 import tools.replay.ExternalDataSource;
+import tools.replay.TraceParser;
 import tools.replay.actors.ActorExecutionTrace;
 import tools.replay.actors.ExternalEventualMessage.ExternalDirectMessage;
 import tools.replay.nodes.TraceContextNode;
@@ -66,7 +66,6 @@ public abstract class TimerPrim extends BinarySystemOperation {
         VALUE_SELECTOR, s.getSourceSection(), vm.getLanguage());
 
     if (VmSettings.REPLAY) {
-      ((ReplayActor) vm.getMainActor()).setDataSource(new TimeDataSource());
       todoList = new ArrayList<>();
       replayTargetMap = new HashMap<>();
       traceParser = vm.getTraceParser();

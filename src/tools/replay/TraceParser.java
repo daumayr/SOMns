@@ -34,7 +34,10 @@ public final class TraceParser implements Closeable {
   private final int standardBufferSize;
 
   public TraceParser(final String traceName, final int standardBufferSize) {
-    this.traceName = traceName + (VmSettings.SNAPSHOTS_ENABLED ? ".0" : "");
+    this.traceName =
+        traceName
+            + (VmSettings.SNAPSHOTS_ENABLED ? "." + VmSettings.SNAPSHOT_REPLAY_VERSION : "");
+
     traceFile = new File(this.traceName + ".trace");
 
     try {
@@ -73,40 +76,46 @@ public final class TraceParser implements Closeable {
     return readExternalData(pos);
   }
 
-  public int getIntegerSysCallResult() {
+  public ByteBuffer getSystemCallData() {
     ReplayActor ra = (ReplayActor) EventualMessage.getActorCurrentMessageIsExecutionOn();
-    ByteBuffer bb = getExternalData(ra.getId(), ra.getDataId());
-    return bb.getInt();
+    ReplayRecord rr = ra.getNextReplayEvent();
+    assert rr.type == TraceRecord.SYSTEM_CALL;
+    ByteBuffer bb = getExternalData(ra.getId(), (int) rr.eventNo);
+    return bb;
+  }
+
+  public int getIntegerSysCallResult() {
+    return getSystemCallData().getInt();
   }
 
   public long getLongSysCallResult() {
-    ReplayActor ra = (ReplayActor) EventualMessage.getActorCurrentMessageIsExecutionOn();
-    ByteBuffer bb = getExternalData(ra.getId(), ra.getDataId());
-    return bb.getLong();
+    return getSystemCallData().getLong();
   }
 
   public double getDoubleSysCallResult() {
-    ReplayActor ra = (ReplayActor) EventualMessage.getActorCurrentMessageIsExecutionOn();
-    ByteBuffer bb = getExternalData(ra.getId(), ra.getDataId());
-    return bb.getDouble();
+    return getSystemCallData().getDouble();
   }
 
   public String getStringSysCallResult() {
-    ReplayActor ra = (ReplayActor) EventualMessage.getActorCurrentMessageIsExecutionOn();
-    ByteBuffer bb = getExternalData(ra.getId(), ra.getDataId());
-    return new String(bb.array());
+    return new String(getSystemCallData().array());
   }
 
   public LinkedList<ReplayRecord> getReplayEventsForEntity(final long replayId) {
     EntityNode entity = entities.get(replayId);
-    assert !entity.retrieved;
-    entity.retrieved = true;
+    if (entity == null) {
+      return new LinkedList<>();
+    }
+
     assert entity != null : "Missing Entity: " + replayId;
     return entity.getReplayEvents();
   }
 
   public boolean getMoreEventsForEntity(final long replayId) {
     EntityNode entity = entities.get(replayId);
+    if (entity == null) {
+      return false;
+    }
+
     assert entity != null : "Missing Entity: " + replayId;
     return entity.parseContexts(this);
   }
@@ -268,10 +277,14 @@ public final class TraceParser implements Closeable {
         }
         break;
       case SYSTEM_CALL:
-        if (scanning) {
+        int did = b.getInt();
+        if (!scanning) {
+          ctx.currentEntity.addReplayEvent(
+              new ReplayRecord(did, recordType));
+        } else {
           ctx.metrics[type]++;
         }
-        b.getInt();
+
         break;
 
       case CONDITION_TIMEOUT:
@@ -318,6 +331,7 @@ public final class TraceParser implements Closeable {
 
   private ByteBuffer readExternalData(final long position) {
     File traceFile = new File(traceName + ".dat");
+
     try (FileInputStream fis = new FileInputStream(traceFile);
         FileChannel channel = fis.getChannel()) {
 
@@ -368,7 +382,6 @@ public final class TraceParser implements Closeable {
         if (en.externalData == null) {
           en.externalData = new HashMap<>();
         }
-
         en.externalData.put(dataId, position);
 
         position = channel.position();

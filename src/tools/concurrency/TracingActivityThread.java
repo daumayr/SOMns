@@ -16,6 +16,7 @@ import tools.debugger.entities.EntityType;
 import tools.debugger.entities.SteppingType;
 import tools.replay.ReplayRecord;
 import tools.replay.TraceRecord;
+import tools.replay.nodes.TraceContextNode;
 import tools.snapshot.SnapshotBackend;
 import tools.snapshot.SnapshotHeap;
 
@@ -37,9 +38,11 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
 
   protected final TraceBuffer traceBuffer;
   protected SnapshotHeap      snapshotHeap;
+  protected SnapshotHeap      nextSnapshotHeap;
   protected ArrayList<Long>   messageLocations;
   protected Object[]          externalData;
   protected int               extIndex = 0;
+  public boolean              wasCaptured;
 
   protected SteppingStrategy steppingStrategy;
 
@@ -240,6 +243,19 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
     return snapshotHeap;
   }
 
+  public SnapshotHeap getSnapshotHeapWithoutUpdate() {
+    return snapshotHeap;
+  }
+
+  public SnapshotHeap getNextSnapshotHeap() {
+    if (nextSnapshotHeap == null) {
+      nextSnapshotHeap =
+          new SnapshotHeap((ActorProcessingThread) this, (byte) (this.snapshotId + 1));
+    }
+
+    return nextSnapshotHeap;
+  }
+
   public byte getSnapshotId() {
     return snapshotId;
   }
@@ -247,11 +263,11 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
   private void newSnapshot() {
     TracingActor ta = (TracingActor) ((ActorProcessingThread) this).getCurrentActor();
 
-    if (VmSettings.ACTOR_TRACING) {
-      TraceActorContextNode tracer = ta.getActorContextNode();
+    if (VmSettings.UNIFORM_TRACING) {
+      TraceContextNode tracer = ta.getActorContextNode();
       traceBuffer.swapStorage();
       if (tracer != null) {
-        tracer.trace(ta);
+        tracer.execute(ta);
       }
 
       if (extIndex != 0) {
@@ -263,7 +279,12 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
 
     this.snapshotId = SnapshotBackend.getSnapshotVersion();
 
-    this.snapshotHeap = new SnapshotHeap((ActorProcessingThread) this);
+    if (this.nextSnapshotHeap != null) {
+      this.snapshotHeap = this.nextSnapshotHeap;
+      this.nextSnapshotHeap = null;
+    } else {
+      this.snapshotHeap = new SnapshotHeap((ActorProcessingThread) this);
+    }
     this.messageLocations = new ArrayList<>();
 
     if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.SNAPSHOT_REPLAY) {

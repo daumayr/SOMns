@@ -353,22 +353,22 @@ public abstract class PrimitiveSerializationNodes {
         return location;
       }
 
-      SnapshotBuffer vb = sh.getBufferObject(Integer.BYTES + Long.BYTES);
+      SnapshotBuffer vb = sh.getBufferObject(Long.BYTES + Long.BYTES);
       int base =
-          vb.addObject(o, SFarReference.getFarRefClass(), Integer.BYTES + Long.BYTES);
+          vb.addObject(o, SFarReference.getFarRefClass(), Long.BYTES + Long.BYTES);
       TracingActor other = (TracingActor) o.getActor();
-      vb.putIntAt(base, other.getActorId());
+      vb.putLongAt(base, other.getId());
 
       // writing the reference is done through this method.
       // actual writing may happen at a later point in time if the object wasn't serialized
       // yet
-      other.farReference((SAbstractObject) o.getValue(), vb, base + Integer.BYTES);
+      other.farReference((SAbstractObject) o.getValue(), vb, base + Long.BYTES);
       return vb.calculateReferenceB(base);
     }
 
     @Override
     public Object deserialize(final DeserializationBuffer sb) {
-      int actorId = sb.getInt();
+      long actorId = sb.getLong();
       TracingActor other = (TracingActor) SnapshotBackend.lookupActor(actorId);
       if (other == null) {
         // no messages recorded for this actor, need to create it here.

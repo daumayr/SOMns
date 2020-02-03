@@ -21,10 +21,10 @@ then
   )
 else
   declare -a Savina=(
-    #####"SleepingBarber $iterations 0 2500:1000:1000:1000"
+    "SleepingBarber $iterations 0 2500:1000:1000:1000"
     "CigaretteSmokers $iterations 0 10000:200"
     "LogisticsMapSeries $iterations 0 25000:10:346"
-    ###"BankTransaction $iterations 0 500:10000" #Deadlock presumably
+    "BankTransaction $iterations 0 500:10000" #Deadlock presumably
     ####"BankTransaction $iterations 0 10:100" #Deadlock presumably
     "RadixSort $iterations 0 50000:65536:74755"
     "UnbalancedCobwebbedTree $iterations 0 100000:10:500:100"

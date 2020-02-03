@@ -88,6 +88,7 @@ class Savina usingPlatform: platform andHarness: harness = Value (
       )
 
       public pong: sender = (
+        (*('pong: ' + pingsLeft) println.*)
         pingsLeft > 0
           ifTrue:  [ self <-: ping ]
           ifFalse: [ pong <-: stop ].
@@ -1060,7 +1061,8 @@ class Savina usingPlatform: platform andHarness: harness = Value (
       private rounds = rounds.
       private arbitrator = arbitrator.
       private counter    = aCounter.
-    |)(
+    |
+      )(
       public denied = (
         localCounter:: localCounter + 1.
         arbitrator <-: hungry: self id: id.
@@ -1229,11 +1231,9 @@ class Savina usingPlatform: platform andHarness: harness = Value (
     |)(
       public start = (
         1 to: numHaircuts do:[ :i |
-          i = (numHaircuts / 2) ifTrue: [
-            actors snapshot: self.
-          ].
           sendCustomerToRoom.
           busyWait: (random next: avHaircutRate) + 10 ].
+        actors snapshot: self.
       )
 
       private busyWait: limit = (
@@ -1291,6 +1291,7 @@ class Savina usingPlatform: platform andHarness: harness = Value (
     )
 
     public verifyResult: result = (
+     (numHaircuts =  100 and: [avHaircutRate =  200]) ifTrue: [ ^ result = 16829 ].
       (numHaircuts =  800 and: [avHaircutRate =  200]) ifTrue: [ ^ result = 11357 ].
       (numHaircuts = 1000 and: [avHaircutRate =  500]) ifTrue: [ ^ result =  5029 ].
       (numHaircuts = 2500 and: [avHaircutRate =  500]) ifTrue: [ ^ result = 16033 ].
@@ -1557,11 +1558,10 @@ class Savina usingPlatform: platform andHarness: harness = Value (
     )(
       public start = (
         1 to: numTransactions do: [:i |
-          i = (numTransactions / 2) ifTrue: [
-            actors snapshot: self.
-          ].
           generateWork
-        ]
+        ].
+
+        actors snapshot: self.
       )
 
       public reply: amount = (

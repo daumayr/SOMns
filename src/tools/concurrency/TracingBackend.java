@@ -349,7 +349,7 @@ public class TracingBackend {
    */
   @TruffleBoundary
   public static void newSnapshot(final byte newSnapshotVersion) {
-    if (!VmSettings.ACTOR_TRACING) {
+    if (!VmSettings.UNIFORM_TRACING) {
       return;
     }
 

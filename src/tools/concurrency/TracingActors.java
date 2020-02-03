@@ -1,11 +1,11 @@
 package tools.concurrency;
 
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Queue;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ForkJoinPool;
 import java.util.function.BiConsumer;
@@ -17,37 +17,34 @@ import som.interpreter.Types;
 import som.interpreter.actors.Actor;
 import som.interpreter.actors.EventualMessage;
 import som.interpreter.actors.EventualMessage.PromiseMessage;
-import som.interpreter.actors.SPromise.STracingPromise;
-import som.interpreter.objectstorage.ObjectTransitionSafepoint;
 import som.primitives.ObjectPrims.ClassPrim;
 import som.vm.VmSettings;
 import som.vmobjects.SAbstractObject;
 import som.vmobjects.SClass;
-import tools.concurrency.TraceParser.ExternalMessageRecord;
-import tools.concurrency.TraceParser.ExternalPromiseMessageRecord;
-import tools.concurrency.TraceParser.MessageRecord;
-import tools.concurrency.TraceParser.PromiseMessageRecord;
 import tools.debugger.WebDebugger;
 import tools.replay.PassiveEntityWithEvents;
 import tools.replay.ReplayRecord;
 import tools.replay.TraceParser;
+import tools.replay.nodes.TraceContextNode;
 import tools.snapshot.DeferredFarRefSerialization;
 import tools.snapshot.SnapshotBackend;
 import tools.snapshot.SnapshotBuffer;
 import tools.snapshot.SnapshotHeap;
 import tools.snapshot.deserialization.DeserializationBuffer;
+import tools.snapshot.deserialization.SnapshotParser;
 import tools.snapshot.nodes.AbstractSerializationNode;
 
 
 public class TracingActors {
 
   public static class TracingActor extends Actor {
-    protected final long     activityId;
-    protected int            nextDataID;
-    private int              traceBufferId;
-    protected int            version;
-    private long                       msgCnt;
-    protected boolean                  reportDeferredDone;
+    protected final long activityId;
+    protected int        nextDataID;
+    private int          traceBufferId;
+    protected int        version;
+    protected boolean    reportDeferredDone;
+    public byte          snapshotPhase;
+    public int           msgCnt;
 
     /**
      * This list is used to keep track of references to unserialized objects in the actor
@@ -74,22 +71,21 @@ public class TracingActors {
       assert this.activityId >= 0;
       if (VmSettings.SNAPSHOTS_ENABLED) {
         this.externalReferences = new ConcurrentLinkedQueue<>();
+        this.snapshotPhase = SnapshotBackend.getSnapshotVersion();
       }
     }
 
     protected TracingActor(final VM vm, final long id) {
       super(vm);
       this.activityId = id;
+      if (VmSettings.SNAPSHOTS_ENABLED) {
+        this.snapshotPhase = SnapshotBackend.getSnapshotVersion();
+      }
     }
 
     @Override
     public String toString() {
-      return super.toString() + " #" + actorId;
-    }
-
-    public final int getActorId() {
-      // TODO: remove after rebasing snapshot PR
-      throw new UnsupportedOperationException("Please remove this call and use getId instead");
+      return super.toString() + " #" + activityId;
     }
 
     @Override
@@ -97,12 +93,21 @@ public class TracingActors {
     public synchronized void send(final EventualMessage msg,
         final ForkJoinPool actorPool) {
       super.send(msg, actorPool);
+      if (VmSettings.REPLAY) {
+        assert msg.getMessageId() >= this.version;
+      }
       if (VmSettings.UNIFORM_TRACING) {
         msg.getTracingNode().record(this.version);
-        this.version++;
-        // TODO maybe try to get the recording itself done outside the synchronized method
-      }
 
+        if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.REPLAY) {
+          msg.setIdSnapshot(this.version);
+        }
+
+        if (!VmSettings.REPLAY) {
+          this.version++;
+          // TODO maybe try to get the recording itself done outside the synchronized method
+        }
+      }
     }
 
     @Override
@@ -134,7 +139,7 @@ public class TracingActors {
       return nextDataID;
     }
 
-    public TraceActorContextNode getActorContextNode() {
+    public TraceContextNode getActorContextNode() {
       return this.executor.getActorContextNode();
     }
 
@@ -168,12 +173,6 @@ public class TracingActors {
       if (msg.getHaltOnPromiseMessageResolution()) {
         dbg.prepareSteppingUntilNextRootNode(Thread.currentThread());
       }
-    }
-
-    public long getMessageIdentifier() {
-      long result = (((long) actorId) << 32) | msgCnt;
-      msgCnt++;
-      return result;
     }
 
     @TruffleBoundary // TODO: convert to an approach that constructs a cache
@@ -320,29 +319,6 @@ public class TracingActors {
       return dataSource;
     }
 
-    public void setDataSource(final ExternalDataSource ds) {
-      if (dataSource != null) {
-        throw new UnsupportedOperationException("Allready has a datasource!");
-      }
-      dataSource = ds;
-
-      for (MessageRecord mr : requestedExternalMessages.keySet()) {
-        ReplayActor receiver = requestedExternalMessages.remove(mr);
-
-        if (mr instanceof ExternalMessageRecord) {
-          ExternalMessageRecord emr = (ExternalMessageRecord) mr;
-          dataSource.requestExternalMessage(emr.method, emr.dataId, receiver);
-        } else {
-          ExternalPromiseMessageRecord emr = (ExternalPromiseMessageRecord) mr;
-          dataSource.requestExternalMessage(emr.method, emr.dataId, receiver);
-        }
-      }
-
-      assert requestedExternalMessages.size() == 0;
-
-      requestedExternalMessages = null;
-    }
-
     public boolean hasDataSource() {
       return dataSource != null;
     }
@@ -350,18 +326,6 @@ public class TracingActors {
     @Override
     public LinkedList<ReplayRecord> getReplayEventBuffer() {
       return this.replayEvents;
-    }
-
-    private static int lookupId() {
-      if (VmSettings.REPLAY && Thread.currentThread() instanceof ActorProcessingThread) {
-        ActorProcessingThread t = (ActorProcessingThread) Thread.currentThread();
-        ReplayActor parent = (ReplayActor) t.currentMessage.getTarget();
-        int parentId = parent.getActorId();
-        int childNo = parent.addChild();
-        return TraceParser.getReplayId(parentId, childNo);
-      }
-
-      return 0;
     }
 
     public static ReplayActor getActorWithId(final long id) {
@@ -380,6 +344,27 @@ public class TracingActors {
             assert !actorList.containsKey(activityId);
             actorList.put(activityId, this);
           }
+
+          this.version = (int) SnapshotParser.getVersionForActor(activityId);
+        }
+        traceParser = vm.getTraceParser();
+      } else {
+        replayEvents = null;
+        traceParser = null;
+      }
+    }
+
+    public ReplayActor(final VM vm, final long resolver) {
+      super(vm, resolver);
+      if (VmSettings.REPLAY) {
+        replayEvents = vm.getTraceParser().getReplayEventsForEntity(activityId);
+
+        if (VmSettings.SNAPSHOTS_ENABLED) {
+          synchronized (actorList) {
+            assert !actorList.containsKey(activityId);
+            actorList.put(activityId, this);
+          }
+          this.version = (int) SnapshotParser.getVersionForActor(activityId);
         }
         traceParser = vm.getTraceParser();
       } else {
@@ -397,11 +382,21 @@ public class TracingActors {
       }
     }
 
+    public void setInitialMainActorVersion(final int version) {
+      assert this.activityId == 0;
+      this.version = version;
+    }
+
     @Override
     @TruffleBoundary
     public synchronized void send(final EventualMessage msg,
         final ForkJoinPool actorPool) {
       assert msg.getTarget() == this;
+
+      // Output.println(
+      // "Message " + msg + " with " + msg.getMessageId() + "sent to actor " + activityId);
+
+      assert msg.getMessageId() >= this.version : this.version + " " + msg.getMessageId();
 
       if (!VmSettings.REPLAY) {
         super.send(msg, actorPool);
@@ -416,6 +411,7 @@ public class TracingActors {
 
       if (!this.poisoned && this.replayEvents.isEmpty()
           && this.peekNextReplayEvent() == null) {
+        // Output.println("poisoned");
         this.poisoned = true;
       }
 
@@ -423,6 +419,10 @@ public class TracingActors {
       if ((!this.isExecuting) && this.replayCanProcess(msg) && !this.poisoned) {
         isExecuting = true;
         execute(actorPool);
+      } else {
+        // Output.println(
+        // "Leftover in actor " + activityId + " : " + firstMessage + " "
+        // + firstMessage.getMessageId() + " " + this.version);
       }
     }
 
@@ -477,6 +477,10 @@ public class TracingActors {
           a.version++;
         }
 
+        if (!orderedMessages.isEmpty()) {
+          assert a.version < orderedMessages.peek().getMessageId();
+        }
+
         assert toProcess.size()
             + orderedMessages.size() == numReceivedMsgs : "We shouldn't lose any messages here.";
         return toProcess;
@@ -496,6 +500,7 @@ public class TracingActors {
           if (!a.poisoned && a.replayEvents.isEmpty()
               && a.peekNextReplayEvent() == null) {
             a.poisoned = true;
+            // Output.println("poisoned in loop");
             return;
           }
 
@@ -503,8 +508,6 @@ public class TracingActors {
           handleBreakpointsAndStepping(msg, dbg, a);
           msg.execute();
         }
-
-        requestExternalMessageIfNeeded(a);
 
         currentThread.createdMessages += todo.size();
       }

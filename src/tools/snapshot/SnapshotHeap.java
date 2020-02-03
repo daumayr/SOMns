@@ -21,13 +21,18 @@ public class SnapshotHeap {
   public final long          threadId;
   public byte                snapshotVersion;
 
-  public SnapshotHeap(final ActorProcessingThread actorProcessingThread) {
+  public SnapshotHeap(final ActorProcessingThread actorProcessingThread,
+      final byte snapshotVersion) {
     this.owner = actorProcessingThread;
     this.threadId = owner.getThreadId();
-    this.snapshotVersion = owner.getSnapshotId();
+    this.snapshotVersion = snapshotVersion;
     current = new SnapshotBuffer(this, 0);
     bufferStorage = new LinkedList<>();
     bufferStorage.addFirst(current);
+  }
+
+  public SnapshotHeap(final ActorProcessingThread actorProcessingThread) {
+    this(actorProcessingThread, actorProcessingThread.getSnapshotId());
   }
 
   public SnapshotHeap(final byte version) {

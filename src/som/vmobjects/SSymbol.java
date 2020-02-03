@@ -42,8 +42,7 @@ public final class SSymbol extends SAbstractObject {
     string = value;
     numberOfSignatureArguments = determineNumberOfSignatureArguments();
     if (VmSettings.KOMPOS_TRACING || VmSettings.UNIFORM_TRACING
-        || VmSettings.TRACK_SNAPSHOT_ENTITIES) {
-    if (VmSettings.KOMPOS_TRACING || VmSettings.SNAPSHOTS_ENABLED) {
+        || VmSettings.SNAPSHOTS_ENABLED) {
       symbolId = (short) idGenerator.getAndIncrement();
       TracingBackend.logSymbol(this);
       if (VmSettings.TRACK_SNAPSHOT_ENTITIES) {

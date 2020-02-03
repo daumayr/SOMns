@@ -89,7 +89,7 @@ public class VmSettings implements Settings {
     ANSI_COLOR_IN_OUTPUT = getBool("som.useAnsiColoring", false);
 
     ASSISTED_DEBUGGING_BREAKPOINTS = getInteger("som.assistedDebuggingBp", -1);
-    USE_TRACING_ACTORS = ACTOR_TRACING || SNAPSHOTS_ENABLED;
+    USE_TRACING_ACTORS = UNIFORM_TRACING || SNAPSHOTS_ENABLED;
 
     BUFFER_SIZE = getInteger("som.buffSize", 1024 * 1024);
     BUFFERS_PER_THREAD = getInteger("som.buffPerThread", 4);

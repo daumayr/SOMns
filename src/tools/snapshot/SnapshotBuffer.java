@@ -134,7 +134,7 @@ public class SnapshotBuffer extends TraceBuffer {
   @TruffleBoundary
   private void serializeWithBoundary(final SClass clazz) {
     clazz.getSOMClass().serialize(clazz,
-        ActorProcessingThread.currentThread().getSnapshotHeap());
+        ActorProcessingThread.currentThread().getSnapshotHeapWithoutUpdate());
   }
 
   public int getSize() {

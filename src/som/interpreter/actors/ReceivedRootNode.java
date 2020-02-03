@@ -4,15 +4,12 @@ import com.oracle.truffle.api.CompilerDirectives;
 import com.oracle.truffle.api.frame.FrameDescriptor;
 import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.nodes.RootNode;
-import com.oracle.truffle.api.profiles.ValueProfile;
 import com.oracle.truffle.api.source.SourceSection;
 
-import som.Output;
 import som.VM;
 import som.interpreter.SArguments;
 import som.interpreter.SomLanguage;
 import som.interpreter.actors.Actor.ActorProcessingThread;
-import som.interpreter.actors.EventualMessage.PromiseMessage;
 import som.interpreter.actors.SPromise.SResolver;
 import som.primitives.ObjectPrims.ClassPrim;
 import som.primitives.ObjectPrimsFactory.ClassPrimFactory;
@@ -44,8 +41,6 @@ public abstract class ReceivedRootNode extends RootNode {
   protected final WebDebugger dbg;
   private final SourceSection sourceSection;
 
-  private final ValueProfile msgClass;
-
   protected ReceivedRootNode(final SomLanguage language,
       final SourceSection sourceSection, final FrameDescriptor frameDescriptor,
       final SSymbol selector) {
@@ -61,11 +56,9 @@ public abstract class ReceivedRootNode extends RootNode {
     if (VmSettings.SNAPSHOTS_ENABLED) {
       serializer = MessageSerializationNodeFactory.create(selector);
       classPrim = ClassPrimFactory.create(null);
-      msgClass = ValueProfile.createClassProfile();
     } else {
       serializer = null;
       classPrim = null;
-      msgClass = null;
     }
 
     if (VmSettings.UNIFORM_TRACING) {
@@ -79,19 +72,31 @@ public abstract class ReceivedRootNode extends RootNode {
   @Override
   public final Object execute(final VirtualFrame frame) {
     EventualMessage msg = (EventualMessage) SArguments.rcvr(frame);
+    // Output.println(
+    // msg.getTarget().getId() + " PROCESSING " + msg + " at " + msg.getMessageId());
 
     ActorProcessingThread currentThread = (ActorProcessingThread) Thread.currentThread();
 
     if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.TEST_SNAPSHOTS && !VmSettings.REPLAY) {
-
       SnapshotHeap sh = currentThread.getSnapshotHeap();
 
-      if (sh.needsToBeSnapshot(msg.getSnapshotPhase())) {
-        long msgIdentifier =
-            ((TracingActor) msgClass.profile(msg).getTarget()).getMessageIdentifier();
-        long location = serializer.execute(msg, sh);
-        sh.getOwner().addMessageLocation(msgIdentifier, location);
+      TracingActor owner = (TracingActor) currentThread.getActivity();
+
+      if (VmSettings.UNIFORM_TRACING
+          && owner.snapshotPhase != sh.getSnapshotVersion()) {
+        owner.snapshotPhase = sh.getSnapshotVersion();
+        SnapshotBackend.registerActorVersion(owner.getId(), owner.msgCnt);
       }
+
+      if (sh.needsToBeSnapshot(msg.getSnapshotPhase())) {
+        long location = serializer.execute(msg, sh);
+        currentThread.wasCaptured = true;
+        sh.getOwner().addMessageLocation(owner.getId(), location);
+      } else {
+        currentThread.wasCaptured = false;
+      }
+      ((TracingActor) currentThread.getActivity()).msgCnt++;
+
     }
 
     boolean haltOnResolver;
@@ -117,9 +122,6 @@ public abstract class ReceivedRootNode extends RootNode {
     try {
       return executeBody(frame, msg, haltOnResolver, haltOnResolution);
     } finally {
-      if (VmSettings.ACTOR_TRACING) {
-        msgTracer.execute(msg);
-      }
 
       // this has to be after the msgTracing, as otherwise we will expect messages we shoudln't
       // expect.

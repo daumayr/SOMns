@@ -74,6 +74,7 @@ public class SnapshotWriterThread extends Thread {
     try (FileOutputStream fos = new FileOutputStream(f)) {
       // Write Message Locations
       int offset = writeMessageLocations(s, fos);
+      offset += writeActorVersions(s, fos);
 
       long location = AbstractSerializationNode.getObjectLocation(
           SnapshotBackend.resultPromise, s.version);
@@ -184,6 +185,23 @@ public class SnapshotWriterThread extends Thread {
     return msgSize;
   }
 
+  private static int writeActorVersions(final Snapshot s, final FileOutputStream fos)
+      throws IOException {
+    int entryCount = s.actorVersions.size();
+    assert entryCount % 2 == 0;
+    int size = ((entryCount + 1) * Long.BYTES);
+    ByteBuffer bb =
+        ByteBuffer.allocate(size).order(ByteOrder.LITTLE_ENDIAN);
+    bb.putLong(entryCount);
+    for (Long al : s.actorVersions) {
+      bb.putLong(al);
+    }
+
+    bb.rewind();
+    fos.getChannel().write(bb);
+    return size;
+  }
+
   private static int writeLostResolutions(final Snapshot s, final FileOutputStream fos)
       throws IOException {
     int entryCount = 0;
@@ -194,21 +212,38 @@ public class SnapshotWriterThread extends Thread {
 
     int sizeRes = (s.lostResolutions.size() + 1) * Long.BYTES;
     int sizeMsg = (s.lostMessages.size() + 1) * Long.BYTES;
+    int sizeEMsg = (s.lostErrorMessages.size() + 1) * Long.BYTES;
+    int sizeChains = (s.lostChains.size() + 1) * Long.BYTES;
     ByteBuffer bb =
-        ByteBuffer.allocate(sizeRes + sizeMsg).order(ByteOrder.LITTLE_ENDIAN);
+        ByteBuffer.allocate(sizeRes + sizeMsg + sizeEMsg + sizeChains)
+                  .order(ByteOrder.LITTLE_ENDIAN);
     bb.putLong(s.lostResolutions.size());
+    Output.println("" + s.lostResolutions.size() + " Lost Resolutions");
     for (long l : s.lostResolutions) {
       bb.putLong(l);
     }
 
     bb.putLong(s.lostMessages.size());
+    Output.println("" + s.lostMessages.size() + " Lost Messages");
     for (long l : s.lostMessages) {
+      bb.putLong(l);
+    }
+
+    bb.putLong(s.lostErrorMessages.size());
+    Output.println("" + s.lostErrorMessages.size() + " Lost Error Messages");
+    for (long l : s.lostErrorMessages) {
+      bb.putLong(l);
+    }
+
+    bb.putLong(s.lostChains.size());
+    Output.println("" + s.lostChains.size() + " Lost Chainings");
+    for (long l : s.lostChains) {
       bb.putLong(l);
     }
 
     bb.rewind();
     fos.getChannel().write(bb);
-    return sizeRes + sizeMsg;
+    return sizeRes + sizeMsg + sizeEMsg + sizeChains;
   }
 
   private static void writeSymbolTable() {
