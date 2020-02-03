@@ -137,7 +137,7 @@ public abstract class AbstractPromiseResolutionNode extends QuaternaryExpression
             ReplayRecord npr = TracingActivityThread.currentThread().getActivity()
                                                     .peekNextReplayEvent();
             assert npr.type == TraceRecord.PROMISE_RESOLUTION;
-            ((SReplayPromise) promiseValue).consumeEventsForDelayedResolution();
+            ((SReplayPromise) promiseToBeResolved).consumeEventsForDelayedResolution();
           }
 
           if (VmSettings.UNIFORM_TRACING) {

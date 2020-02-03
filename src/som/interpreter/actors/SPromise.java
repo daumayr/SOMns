@@ -371,6 +371,7 @@ public class SPromise extends SObjectWithClass {
     ValueProfile                                      whenResolvedProfile;
     boolean                                           untrackedResolution = false;
     LinkedList<ReplayRecord>                          eventsForDelayedResolution;
+    boolean                                           handled             = false;
 
     protected SReplayPromise(final Actor owner, final boolean haltOnResolver,
         final boolean haltOnResolution) {
@@ -381,6 +382,9 @@ public class SPromise extends SObjectWithClass {
     public void handleReplayResolution(final boolean haltOnResolution, final Actor resolver,
         final Resolution type, final ValueProfile whenResolvedProfile) {
 
+      assert !handled;
+      handled = true;
+
       Activity current = TracingActivityThread.currentThread().getActivity();
       if (untrackedResolution) {
         assert this.onResolvedReplay == null;
@@ -390,8 +394,6 @@ public class SPromise extends SObjectWithClass {
         assert eventsForDelayedResolution == null;
         return;
       }
-
-      assert this.eventsForDelayedResolution == null;
 
       ReplayRecord npr = current.peekNextReplayEvent();
       assert npr != null;
@@ -407,7 +409,9 @@ public class SPromise extends SObjectWithClass {
         this.whenResolvedProfile = whenResolvedProfile;
         this.type = type;
 
-        consumeEventsForDelayedResolution();
+        if (eventsForDelayedResolution == null) {
+          consumeEventsForDelayedResolution();
+        }
         return;
       }
 
