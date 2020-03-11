@@ -13,6 +13,13 @@ echo "# Export JVMCI_HOME for SOMns" >> ~/.profile
 echo "export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64"
 
 git clone ${GIT_REPO} ${REPO_NAME}
+git clone ${GIT_REPO} ${REPO_NAME}_ALT
+
+cd ${REPO_NAME}_ALT
+git checkout ${COMMIT_SHA_ALT}
+git submodule update --init --recursive
+ant
+cd ..
 
 cd ${REPO_NAME}
 git checkout ${COMMIT_SHA}

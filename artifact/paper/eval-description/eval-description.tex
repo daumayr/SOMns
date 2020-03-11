@@ -1,0 +1,540 @@
+\documentclass[a4paper,UKenglish,cleveref,autoref]{lipics-v2019}
+%This is a template for producing LIPIcs articles.
+%See lipics-manual.pdf for further information.
+%for A4 paper format use option "a4paper", for US-letter use option "letterpaper"
+%for british hyphenation rules use option "UKenglish", for american hyphenation rules use option "USenglish"
+%for section-numbered lemmas etc., use "numberwithinsect"
+%for enabling cleveref support, use "cleveref"
+%for enabling cleveref support, use "autoref"
+
+
+\include{scripts/init}
+\include{gen/performance}
+\usepackage{graphicx}
+
+\newcommand{\citep}[1]{\,\cite{#1}}
+\newcommand{\citet}[1]{\,<Name>\,\cite{#1}}
+
+\def\SOMns{SOM{\sc ns}\xspace}
+\def\AcmeAir{Acme\,Air\xspace}
+\def\Kompos{Kómpos\xspace}
+
+%\graphicspath{{./graphics/}}%helpful if your graphic files are in another directory
+
+%\bibliographystyle{plainurl}% the mandatory bibstyle
+
+\title{Uniform Record \& Replay for Multi-paradigm Concurrent Programs }
+
+%\titlerunning{Dummy short title}%optional, please use if title is longer than one line
+
+
+\author{Anonymous}{Anonymous}{}{[orcid]}{[funding]}
+%% commented for submission:
+%\author{Dominik Aumayr}{Johannes Kepler University, Linz, Austria}{dominik.aumayr@jku.at}{https://orcid.org/0000-0002-1825-0097}{}
+%\author{Stefan Marr}{University of Kent, Canterbury, United Kingdom}{s.marr@kent.ac.uk}{https://orcid.org/0000-0002-1825-0097}{}
+%\author{Elisa Gonzalez Boix}{Vrije Universiteit Brussel, Brussel, Belgium}{egonzale@vub.be}{https://orcid.org/0000-0002-1825-0097}{}
+%\author{Hanspeter M\"{o}ssenb\"{o}ck}{Johannes Kepler University, Linz, Austria}{hanspeter.moessenboeck@jku.at}{https://orcid.org/0000-0002-1825-0097}{}
+
+\authorrunning{Anonymous et al.}
+%% commented for submission:
+%\authorrunning{D. Aumayr, S. Marr, E. Gonzalez Boix and H. M\"{o}ssenb\"{o}ck}%TODO mandatory. First: Use abbreviated first/middle names. Second (only in severe cases): Use first author plus 'et al.'
+
+\Copyright{Anonymous}
+%% commented for submission:
+%\Copyright{Dominik Aumayr, Stefan Marr, Elisa Gonzalez Boix and Hanspeter M\"{o}ssenb\"{o}ck}%TODO mandatory, please use full first names. LIPIcs license is "CC-BY";  http://creativecommons.org/licenses/by/3.0/
+
+%ACM classification no needed for submission but I left it otherwise it complains
+\ccsdesc[300]{Software and its engineering~Concurrent programming languages}
+\ccsdesc[300]{Software and its engineering~Software testing and debugging}
+
+\keywords{Debugging, Tooling, Concurrency, Record \& Replay, Multi-Paradigm}
+
+\category{}%optional, e.g. invited paper
+
+\relatedversion{}%optional, e.g. full version hosted on arXiv, HAL, or other respository/website
+%\relatedversion{A full version of the paper is available at \url{...}.}
+
+\supplement{}%optional, e.g. related research data, source code, ... hosted on a repository like zenodo, figshare, GitHub, ...
+
+%\funding{(Optional) general funding statement \dots}%optional, to capture a funding statement, which applies to all authors. Please enter author specific funding statements as fifth argument of the \author macro.
+
+%% commented for submission:
+%\acknowledgements{This research is funded in part by a collaboration grant of the Austrian Science Fund (FWF) and the Research Foundation Flanders (FWO Belgium) as project I2491-N31 and G004816N.}%optional
+
+%\nolinenumbers %uncomment to disable line numbering
+
+%\hideLIPIcs  %uncomment to remove references to LIPIcs series (logo, DOI, ...), e.g. when preparing a pre-final version to be uploaded to arXiv or another public repository
+
+%Editor-only macros:: begin (do not touch as author)%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\EventEditors{Robert Hirschfeld}
+\EventNoEds{1}
+\EventLongTitle{34th European Conference on Object-Oriented Programming (ECOOP 2020)}
+\EventShortTitle{ECOOP 2020}
+\EventAcronym{ECOOP}
+\EventYear{2020}
+\EventDate{July 13--17, 2020}
+\EventLocation{Berlin, Germany}
+\EventLogo{}
+\SeriesVolume{42}
+\ArticleNo{1}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\begin{document}
+
+\maketitle
+
+
+\begin{abstract}
+
+\end{abstract}
+
+
+
+\section{Evaluation of Uniform Record \& Replay}
+This section evaluates the flexibility and generality of our approach.
+% While our approach is designed with uniformity in mind,  flexibility was also an important design goal.
+It should be possible to support
+a wide range of concurrency models,
+vary the strategy of how to record \& replay a concurrency model,
+and the way how to model events
+without having to change the trace format or corresponding infrastructure.
+
+\section{Evaluation of Performance}
+
+This section evaluates the recording performance
+of our uniform record \& replay implementation.
+The overall goal of this evaluation is to assess whether our approach
+is practical, and how it compares to a special-purpose implementation.
+
+To assess whether our approach is practical, we measure the run-time overhead
+of recording for each model individually.
+The fork/join model is not evaluated
+as it does not introduce events
+that need to be recorded and replayed.
+In particular, we assess whether using our uniform record \& replay approach
+introduces an overhead too high for use for diagnostic purposes in production
+scenarios.
+Depending on the specific application, an overhead of 10\% may still
+be considered acceptable,
+while doubling the run time may disqualify the approach from consideration.
+
+To assess how our approach compares to a special-purpose implementation, 
+we use the work of 
+Aumayr\,et\,al which developed a record \& replay system for \SOMns.
+That work reports optimizations for their system
+with a minimal run-time overhead for a real-world application.
+As such, we assume it to be a highly optimized system
+and a good approach to compare to since it also builds on \SOMns.
+%At the same time, we assume that a uniform approach needs to reach
+%similar performance as a special-purpose implementation
+%to be considered acceptable from a performance perspective.
+
+\subsection{Methodology}
+
+% EGB: I moved the following text up to the glue text.
+%As mentioned, the main focus of this evaluation is to compare
+%the performance overhead of our approach
+% of our uniform record \& replay system for the CEL model
+%with a special-purpose implementation. 
+%For CEL, we use the work of 
+%Aumayr\,et\,al.\citep{Aumayr:2018:Replay} since it reports optimizations for their system
+%with a minimal run-time overhead for a real-world application.
+%As such, we assume it to be a highly optimized system
+%and a good comparison since it also builds on \SOMns.
+
+We now explain the methodology to select benchmarks as well as details of the software and hardware used for their execution.
+
+\paragraph*{Benchmark Selection}
+
+We evaluate the recording performance of our implementation in \SOMns based on different benchmark suites for each model.
+%For the evaluation of
+%recording performance
+For the CEL model,
+we rely on the widely used Savina benchmark suite
+for actors.
+% SM: I think my edit before sets this up more directly, and less as a consequence.
+% As the Savina benchmarks were used
+% by a specialized record \& replay
+% for actors in the same VM,
+% this allows for a direct
+% comparison of recording performance.
+%
+For threads \& locks and STM
+we use the LeeTM benchmark,
+the Vacation benchmark from the STAMP suite,
+and a variant of the classic dining philosophers.
+%
+Lee and Vacation were designed for
+transactional systems.
+Thus, for our threads \& locks version,
+we replaced transactions
+with mutual exclusion through locks.
+%
+The benchmarks used for CSP
+are based on the
+corresponding Savina benchmarks.
+
+
+For the CEL model, \SOMns comes with a comprehensive set of benchmarks
+enabling us to do a detailed evaluation.
+However, for the other concurrency models,
+% \SOMns does not come with a similarly comprehensive set of benchmarks.
+we ported them from various sources.
+Furthermore, \SOMns' STM implementation is not as optimized as the other concurrency models.
+This means a performance evaluation is merely an indication
+that our approach works.
+It will not indicate how the performance overhead for an optimized system would look like.
+
+\paragraph*{Benchmark Execution}
+
+We argue that \SOMns is a suitable platform for such evaluation of
+run-time overhead as it has performance
+comparable to NodeJS
+which is used in production systems.
+It achieves this performance by using
+the Graal just-in-time compiler on top of the GraalVM.
+%
+Because of this run-time profiling and compilation, benchmarks
+do need time to \emph{warm up},
+which depending on the benchmark, may take
+multiple iterations before performance stabilizes.
+%
+We account for this warmup behavior
+by executing each benchmark
+for 1000 iterations.
+%
+After manual inspection,
+we discarded the first 250
+iterations as warmup.
+%
+The remaining 750 iterations
+of each benchmark
+are assumed to be representative
+for the performance behavior of a longer running application.
+
+For all benchmarks, we report the \emph{run-time factor} scaled based on the 
+performance of the baseline without recording support
+as it allows us to compare the results intuitively.
+The run-time factor is a simple scaling transformation, which does not effect
+statistic properties of the data, similar to a transformation from \textdegree{}C to \textdegree{}F.
+It scales each measurement to the mean measurement for the benchmark on \SOMns
+without recording support.
+
+The benchmarks were executed on
+a machine with a quadcore
+Intel Core i7-6700 CPU, 3.40GHz, with 16GB RAM, 
+a 256GB SSD, Ubuntu 18.04.3 LTS (kernel 4.15.0-72),
+and a custom built OpenJDK 1.8.0\_232
+with JVMCI and Graal version 19.3-b04.
+
+
+In multithreaded execution,
+the performance of a benchmark
+may be sensitive to contention.
+%
+For instance in the Philosophers benchmark,
+activities compete for access to forks,
+depending on the order in which
+philosophers acquire and release forks
+the number of failed attempts
+and the time the benchmark takes may increase.
+%
+As our tracing of nondeterministic events
+inevitably is going
+to have an effect on
+the execution,
+we restrict execution
+to one thread
+to obtain more stable results
+that reflect the actual tracing overhead.
+%
+The single threaded
+execution ensures
+that the tracing overhead
+is not hidden, e.g., by thread contention.
+%
+However, for the CSP benchmarks,
+we had to use at least 2 threads
+for execution, since the processes are directly mapped to threads
+and channels have rendezvous semantics.
+%
+The CSP benchmarks do not have contention
+on the channels when only 2 threads are used.
+Therefore, any overhead of tracing should still be measurable.
+
+\subsection{Recording Performance for CEL}
+\label{sec:evalActors}
+
+The evaluation of the recording overhead on the CEL model is based on the Savina actor benchmark suite.
+\cref{fig:actor-perf} shows the recording overhead for the benchmarks, \ie the run-time factor for all benchmarks.
+%
+The geometric mean of the run-time factors (red dots in the plot)
+indicates an overall overhead of\SavinaAvgOverheadP
+for recording nondeterministic events for the CEL model,
+where a majority (16 of 20) of the Savina benchmarks
+have an overhead
+in the 0\,to\,10\% range.
+%
+ForkJoinThroughput has the highest overhead with\SavinaMaxOverheadP.
+The Trapezoidal benchmark has the lowest overhead
+of\SavinaMinOverheadP
+compared to \SOMns without recording support.
+%
+Trapezoidal's `speedup' is insignificant as can be seen by the overlapping boxplots.
+
+Our results indicate that
+the recording overhead
+depends on the mix of operations performed by an application.
+Benchmarks with a high proportion of nondeterministic events
+such as ForkJoinThroughput,
+which just creates actors and sends messages to them,
+or AStarSearch and LogisticsMapSeries,
+which have large number of actors communicating,
+have higher overhead than benchmarks with few nondeterministic events
+such as Trapezoidal, NQueens, and even ThreadRing.
+For instance, Trapezoidal is one of the more computationally intensive
+benchmarks of the Savina suite,
+and thus, has a comparably small number of nondeterministic events that are recorded.
+
+
+\begin{figure*}
+	\begin{minipage}{.475\textwidth}
+		%\centering
+    % \PerformanceActors
+    \includegraphics{gen/savina-performance-actors-1.pdf}
+		\caption{
+      Recording performance of uniform record \& replay for CEL actors
+      compared to regular benchmark executions.
+      The average overhead is\SavinaAvgOverheadP (min.\SavinaMinOverheadP, max.\SavinaMaxOverheadP) and thus,
+      in an acceptable range for many production applications.
+      \vspace{2\baselineskip}}
+		\label{fig:actor-perf}
+	\end{minipage}
+	\hspace{0.05\textwidth}
+	\begin{minipage}{.475\textwidth}
+		%\centering
+    % \PerformanceActorsOld
+    \includegraphics{gen/savina-performance-old-1.png}
+		\caption{
+      Comparison of the recording performance of our uniform record \& replay
+      with a solution optimized for actors only,
+      both to the baseline of \SOMns without any recording.
+      The actors-specific record \& replay
+      has an average overhead of\SavinaOldAvgOverheadP
+      (min.\SavinaOldMinOverheadP, max.\SavinaOldMaxOverheadP).
+      This means our uniform solution is
+      competitive with the optimized actors-specific solutions.}
+		\label{fig:actor-perf-comp}
+	\end{minipage}
+\end{figure*}
+
+
+\subsection{Comparison with Specialized CEL Record \& Replay}
+
+We now compare our uniform record \& replay for CEL actors with a specialized CEL record \& replay system for \SOMns\citep{Aumayr:2018:Replay}.
+% developed 
+%a record \& replay system for \SOMns that
+%is dedicated to the CEL model (cf. \cref{sec:RW:ActorRP}).
+%
+%As they reported on optimizations,
+%the focus of their work was primarily performance.
+%
+While we cannot assume that their performance is perfect,
+they reported optimizations to minimize the run-time overhead
+of record \& replay for actors.
+%
+Since both approaches are implemented
+for \SOMns, we can use the Savina actor benchmarks and directly
+compare the performance of our uniform approach
+with the performance
+of this special-purpose solution.
+
+\paragraph*{Run-time Performance}
+\Cref{fig:actor-perf-comp} shows a comparison of the recording performance for both approaches,
+normalized to untraced executions of Savina benchmarks,
+%
+Due to the characteristics of the benchmarks,
+the approaches perform differently on each benchmark.
+%
+Overall, the recording overhead of both approaches
+is in a similar range.
+%
+The actors-specific record \& replay 
+has an average overhead of\SavinaOldAvgOverheadP (min.\SavinaOldMinOverheadP, max.\SavinaOldMaxOverheadP),
+while our unified approach
+had an overhead of\SavinaAvgOverheadP (min.\SavinaMinOverheadP, max.\SavinaMaxOverheadP).
+This indicates that our uniform approach
+is competitive with an optimized special-purpose implementation.
+
+\paragraph*{Trace Size}
+\label{sec:eval-trace-size}
+
+In \cref{tab:tracesize}, the size of the traces produced by both approaches
+are compared. 
+The trace sizes of our uniform approach
+fall within a similar range as the trace sizes of the actor-specific approach.
+Directly compared to each other, the uniform approach has an average trace size overhead of\TraceAvgOverheadP (min.\TraceMinOverheadP, max.\TraceMaxOverheadP).
+%
+The high variation of the trace size factor indicates
+that benchmark characteristics
+influence how compact the nondeterminism can be captured.
+%
+We conclude that the uniform record \& replay
+can reach performance and trace sizes competitive
+with approaches that aim at a single model.
+Thus, our approach can be as compact as special-purpose approaches.
+% \egb{Stefan, can you add here emphasis on a compact trace?}
+
+%\sm{We should emphasize here that `the others' report on optimizations
+%and thus, their work was primarily focused on performance.
+%While we cannot assume that their performance is perfect,
+%we assume that they attempted to minimize run-time overhead.}
+
+
+\begin{figure*}
+	\begin{minipage}{.475\textwidth}
+		%\centering
+		\captionsetup{type=table}
+		\caption{
+      Size of the traces recorded per benchmark iteration.
+      The Factor is the trace size of the Uniform approach
+      normalized to the Specialized approach.
+      On average, our uniform approach has a trace size overhead
+      of\TraceAvgOverheadP (min.\TraceMinOverheadP, max.\TraceMaxOverheadP),
+      and is thus competitive with a special purpose approach.
+    }
+		\resizebox{\textwidth}{!}{%
+			\SavinaTraceDataTable}
+
+		\label{tab:tracesize}
+	\end{minipage}
+	\hspace{0.05\textwidth}
+	\begin{minipage}{.475\textwidth}
+		%\centering
+		\PerformanceCSP
+		\vspace{-6mm}
+		\caption{Recording performance of uniform record \& replay
+      for a subset of the Savina benchmarks modified for CSP.
+      The average overhead is\CSPAvgOverheadP
+      (min.\CSPMinOverheadP, max.\CSPMaxOverheadP).}
+		\label{fig:csp-perf}
+		\vspace{5mm}
+		\PerformanceMutex
+		\vspace{-6mm}
+		\caption{Recording performance of our prototype for 
+      Threads \& Locks compared to untraced execution.
+      The average overhead is\MutexAvgOverheadP
+      (min.\MutexMinOverheadP, max.\MutexMaxOverheadP).}
+		\label{fig:mutex-perf}
+		\vspace{5mm}
+		\PerformanceSTM
+		\vspace{-6mm}
+		\caption{The STM implementation used in \SOMns is not optimized.
+       The tracing performance is not representative of optimized
+       implementations.}
+		\label{fig:stm-perf}
+	\end{minipage}
+\end{figure*}
+
+\subsection{Recording Performance for Threads \& Locks}
+
+The evaluation for recording overhead on the T\&L model is based on benchmarks
+designed to compare locking with STM, namely the LeeTM and Vacation benchmarks,
+both about 600--700 LOC each.
+We also ported the Philosophers benchmark.
+The benchmarks were intended to measure how the nondeterministic program parts
+are synchronized, and how the synchronization overhead changes performance.
+In our evaluation, the synchronization overhead is not relevant,
+however, the nondeterministic events originate from the same program elements,
+and thus, allow us to measure their overhead.
+
+\Cref{fig:mutex-perf} shows the recording performance
+for our benchmarks of threads \& locks.
+The geometric mean of the run-time factors
+indicates an overall overhead of\MutexAvgOverheadP
+(min.\MutexMinOverheadP, max.\MutexMaxOverheadP).
+%
+%
+This means, the results are in a similar
+range of overhead as the record \& replay
+for the CEL model.
+
+%% SM: removed, I don't know how to integrate this. It doesn't fit here, and it doesn't fit in the STM section.
+% For the Vacation benchmark, performance differences to the
+% STM version can in part be explained
+% with the different granularity of synchronization,
+% as instead of few transactions
+% many lock acquisitions
+% are used to achieve a similar result.
+
+\subsection{Recording Performance for CSP}
+
+The evaluation of the recording overhead on the CSP model is based on benchmarks adapted from
+the Savina benchmark suite.
+While programs designed for CSP may take different shapes,
+the benchmarks show a variety of message passing behaviors
+that can also appear in more idiomatic CSP programs.
+
+The recording performance for our CSP benchmarks,
+as shown in \cref{fig:csp-perf},
+results in an average (geometric) overhead of\CSPAvgOverheadP
+(min.\CSPMinOverheadP, max.\CSPMaxOverheadP).
+%
+The maximum overhead of\CSPMaxOverheadP occurs 
+in the FJThrouhput benchmark (red dot),
+this is consistent with our results
+for the recording performance in the actor model,
+where FJThroughput is the benchmark with the
+highest overhead, too.
+
+% \smdone{this is not supported by the plot.
+% You report here a maximum overhead, possibly based on some mean.
+% But the plot only shows the median, where PingPong has the highest overhead.
+% Which is not the same as for the actor model.}
+% \dau{I guess this is resolved with the added dots for mean}
+
+\subsection{Recording Performance for STM}
+
+The evaluation of the recording overhead on the STM model is based on the same benchmarks
+as threads \& locks.
+The benchmark results are shown in \cref{fig:stm-perf},
+the geometric mean of the run-time factors
+indicates an average overhead of\STMAvgOverheadP
+(min.\STMMinOverheadP, max.\STMMaxOverheadP).
+%
+These numbers are unfortunately not generalizable.
+The STM implementation of \SOMns is not optimized for performance.
+While the other concurrency models execute highly optimized code,
+the STM is currently about 5x slower than sequential code.
+This means, the STM itself hides any overhead from the recording.
+
+% %
+% Interpretation of the results
+% has to take into consideration
+% that the STM implementation of \SOMns
+% is not highly optimized,
+% \ie in an optimized STM system
+% the observed overheads are likely to be higher.
+%
+However, our approach to recording for the STM 
+records only a single event per successfully committed
+transaction.
+Thus, if we had applied it to a highly optimized STM,
+it would have a small constant overhead for each commit operation,
+which would likely be in the low percentage range
+for applications with large number of transactions.
+
+
+%%
+%% Bibliography
+%%
+
+%% Please use bibtex,
+
+%\bibliography{paper}
+
+% \appendix
+% \section{Appendix}
+
+
+\end{document}

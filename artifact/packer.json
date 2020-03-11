@@ -1,22 +1,23 @@
 {
   "_COMMENT": "This file instructs packer to compose the artifact, and execute the setup scripts",
-  
+
   "variables": {
     "_COMMENT": "environment variables are defined in config.inc",
-    
+
     "box_name":     "{{env `BOX_NAME`}}",
     "rebench_conf": "{{env `REBENCH_CONF`}}",
     "commit_sha":   "{{env `COMMIT_SHA`}}",
+    "commit_sha_alt":   "{{env `COMMIT_SHA_ALT`}}",
     "git_repo":     "{{env `GIT_REPO`}}",
     "repo_name":    "{{env `REPO_NAME`}}",
     "home":         "{{env `HOME`}}",
-    
+
     "vm_description": "Development Image for working on SOMns",
     "vm_version": "0.1.0",
     "hostname": "artifact",
-    "headless": "true", 
+    "headless": "true",
     "base_image": "xenial64/artifact-base-xenial64.ova",
-    
+
     "memory": "6144",
     "ssh_username": "artifact",
     "ssh_password": "artifact"
@@ -44,11 +45,22 @@
   } ],
   "provisioners": [
     {
+      "type": "file",
+      "source":      "paper/evaluation",
+      "destination": "/home/artifact"
+    },
+    {
+      "type": "file",
+      "source":      "paper/eval-description",
+      "destination": "/home/artifact"
+    },
+    {
       "execute_command": "echo 'artifact' | {{.Vars}} sudo -S -E bash -eux '{{.Path}}'",
       "expect_disconnect": true,
       "environment_vars": [
         "REBENCH_CONF={{user `rebench_conf`}}",
         "COMMIT_SHA={{user `commit_sha`}}",
+        "COMMIT_SHA_ALT={{user `commit_sha_alt`}}",
         "GIT_REPO={{user `git_repo`}}"
       ],
       "scripts": [
@@ -61,6 +73,7 @@
       "environment_vars": [
         "REBENCH_CONF={{user `rebench_conf`}}",
         "COMMIT_SHA={{user `commit_sha`}}",
+        "COMMIT_SHA_ALT={{user `commit_sha_alt`}}",
         "GIT_REPO={{user `git_repo`}}",
         "REPO_NAME={{user `repo_name`}}"
       ],
