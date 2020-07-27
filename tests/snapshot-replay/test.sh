@@ -46,7 +46,7 @@ do
   counter=1
   while [ $counter -le 1 ]
   do
-
+      rm $SOM_DIR/traces/*
       echo "$counter. $args"
       echo "Tracing:"
       $SOM_DIR/som -EG -as -at -t1 -JXmx2000m -JXss16284k core-lib/Benchmarks/AsyncHarness.ns SavinaSnap.$args

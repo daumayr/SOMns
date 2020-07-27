@@ -22,48 +22,61 @@ import tools.replay.nodes.RecordEventNodes;
 
 public final class TraceParser implements Closeable {
 
-  private final File            traceFile;
-  private final FileInputStream traceInputStream;
-  private final String          traceName;
-  private final FileChannel     traceChannel;
+  private final String baseTraceName;
 
-  private final HashMap<Long, EntityNode> entities = new HashMap<>();
+  private final HashMap<Integer, FileChannel> traceChannels;
+  private final LinkedList<FileInputStream>   openTraceStreams;
+  private final HashMap<Long, EntityNode>     entities = new HashMap<>();
 
   private static final TraceRecord[] parseTable = createParseTable();
 
   private final int standardBufferSize;
+  private int       lastParsedTrace;
 
   public TraceParser(final String traceName, final int standardBufferSize) {
-    this.traceName =
-        traceName
-            + (VmSettings.SNAPSHOTS_ENABLED ? "." + VmSettings.SNAPSHOT_REPLAY_VERSION : "");
-    traceFile = new File(this.traceName + ".trace");
-
-    try {
-      traceInputStream = new FileInputStream(traceFile);
-      traceChannel = traceInputStream.getChannel();
-    } catch (FileNotFoundException e) {
-      throw new RuntimeException(
-          "Attempted to open trace file '" + traceFile.getAbsolutePath() +
-              "', but failed. ",
-          e);
-    }
-
+    traceChannels = new HashMap<Integer, FileChannel>();
+    openTraceStreams = new LinkedList<FileInputStream>();
+    this.baseTraceName = traceName;
     this.standardBufferSize = standardBufferSize;
+
+    if (VmSettings.SNAPSHOT_REPLAY) {
+      lastParsedTrace = VmSettings.SNAPSHOT_REPLAY_VERSION;
+    }
   }
 
   public TraceParser(final String traceName) {
     this(traceName, VmSettings.BUFFER_SIZE);
   }
 
+  public String getTraceName(final int snapshotVersion) {
+    return baseTraceName
+        + (VmSettings.SNAPSHOTS_ENABLED ? "." + snapshotVersion : "");
+    // return baseTraceName + "." + snapshotVersion;
+  }
+
   public void initialize() {
-    parseTrace(true, null, null);
-    parseExternalData();
+    parseTrace(true, null, null, lastParsedTrace);
+    parseExternalData(lastParsedTrace);
+  }
+
+  protected boolean scanNextTrace() {
+    // need to avoid synchronization issues
+    File traceFile = new File(getTraceName(lastParsedTrace + 1) + ".trace");
+    if (!traceFile.exists()) {
+      return false;
+    }
+
+    lastParsedTrace++;
+    parseTrace(true, null, null, lastParsedTrace);
+    parseExternalData(lastParsedTrace);
+    return true;
   }
 
   @Override
   public void close() throws IOException {
-    traceInputStream.close();
+    for (FileInputStream traceInputStream : openTraceStreams) {
+      traceInputStream.close();
+    }
   }
 
   protected HashMap<Long, EntityNode> getEntities() {
@@ -72,7 +85,10 @@ public final class TraceParser implements Closeable {
 
   public ByteBuffer getExternalData(final long actorId, final int dataId) {
     long pos = entities.get(actorId).externalData.get(dataId);
-    return readExternalData(pos);
+    int snapshotVersion = lastParsedTrace;
+    Output.println("external " + snapshotVersion);
+    // TODO manage snapshto info for external data
+    return readExternalData(pos, snapshotVersion);
   }
 
   public ByteBuffer getSystemCallData() {
@@ -105,7 +121,11 @@ public final class TraceParser implements Closeable {
     // if (entity == null) {
     // entity.retrieved = true; return new LinkedList<>();
     // }
-    assert entity != null : "No Data for Activity " + replayId;
+    if (entity == null) {
+      assert scanNextTrace() : "Failed scanning next Trace";
+      entity = entities.get(replayId);
+      assert entity != null : "No Data for Activity " + replayId;
+    }
 
     return entity.getReplayEvents();
   }
@@ -152,6 +172,30 @@ public final class TraceParser implements Closeable {
     return result;
   }
 
+  public FileChannel getTraceChannel(final int snapshotVersion) {
+    FileChannel traceChannel = traceChannels.get(snapshotVersion);
+
+    if (traceChannel == null) {
+      // new trace file needs to be loaded
+      File traceFile = new File(getTraceName(snapshotVersion) + ".trace");
+
+      try {
+        Output.println("channel for " + traceFile.getAbsolutePath());
+        FileInputStream traceInputStream = new FileInputStream(traceFile);
+        openTraceStreams.add(traceInputStream);
+        traceChannel = traceInputStream.getChannel();
+        traceChannels.put(snapshotVersion, traceChannel);
+      } catch (FileNotFoundException e) {
+        throw new RuntimeException(
+            "Attempted to open trace file '" + traceFile.getAbsolutePath() +
+                "', but failed. ",
+            e);
+      }
+    }
+
+    return traceChannel;
+  }
+
   private static final class EventParseContext {
     int        ordering;     // only used during scanning!
     EntityNode currentEntity;
@@ -173,15 +217,17 @@ public final class TraceParser implements Closeable {
   }
 
   protected void parseTrace(final boolean scanning, final Subtrace loc,
-      final EntityNode context) {
+      final EntityNode context, final int snapshotVersion) {
     final int parseLength = loc == null || loc.length == 0 ? standardBufferSize
         : Math.min(standardBufferSize, (int) loc.length);
 
     ByteBuffer b = ByteBuffer.allocate(parseLength);
     b.order(ByteOrder.LITTLE_ENDIAN);
 
+    FileChannel traceChannel = getTraceChannel(snapshotVersion);
+
     if (scanning) {
-      Output.println("Scanning Trace ...");
+      Output.println("Scanning Trace " + snapshotVersion + " ...");
     }
 
     EventParseContext ctx = new EventParseContext(context);
@@ -191,7 +237,7 @@ public final class TraceParser implements Closeable {
       int nextReadPosition = loc == null ? 0 : (int) loc.startOffset;
       int startPosition = nextReadPosition;
 
-      nextReadPosition = readFromChannel(b, nextReadPosition);
+      nextReadPosition = readFromChannel(b, nextReadPosition, traceChannel);
 
       final boolean readAll = loc != null && loc.length == nextReadPosition - startPosition;
 
@@ -204,10 +250,11 @@ public final class TraceParser implements Closeable {
           int remaining = b.remaining();
           startPosition += b.position();
           b.compact();
-          nextReadPosition = readFromChannel(b, startPosition + remaining);
+          nextReadPosition = readFromChannel(b, startPosition + remaining, traceChannel);
         }
 
         boolean done = readTrace(first, scanning, b, ctx, startPosition, nextReadPosition);
+        assert !done : "think the return value here is not needed";
         if (done) {
           return;
         }
@@ -228,7 +275,8 @@ public final class TraceParser implements Closeable {
     }
   }
 
-  private int readFromChannel(final ByteBuffer b, int currentPosition) throws IOException {
+  private int readFromChannel(final ByteBuffer b, int currentPosition,
+      final FileChannel traceChannel) throws IOException {
     int numBytesRead = traceChannel.read(b, currentPosition);
     currentPosition += numBytesRead;
     b.flip();
@@ -251,15 +299,18 @@ public final class TraceParser implements Closeable {
       case ACTIVITY_CONTEXT:
         if (scanning) {
           if (ctx.currentEntity != null) {
+            // new activity closes the last one, length of previous context is calculated
             ctx.entityLocation.length = startPosition + start - ctx.entityLocation.startOffset;
           }
           ctx.metrics[type]++;
           ctx.ordering = Short.toUnsignedInt(b.getShort());
           long currentEntityId = getId(b, Long.BYTES);
+
           ctx.currentEntity = getOrCreateEntityEntry(recordType, currentEntityId);
           assert ctx.currentEntity != null;
           Subtrace loc =
               ctx.currentEntity.registerContext(ctx.ordering, startPosition + start);
+          loc.snapshot = lastParsedTrace;
 
           assert b.position() == start + 11;
           ctx.entityLocation = loc;
@@ -327,8 +378,8 @@ public final class TraceParser implements Closeable {
     }
   }
 
-  private ByteBuffer readExternalData(final long position) {
-    File traceFile = new File(traceName + ".dat");
+  private ByteBuffer readExternalData(final long position, final int snapshotVersion) {
+    File traceFile = new File(getTraceName(snapshotVersion) + ".dat");
     try (FileInputStream fis = new FileInputStream(traceFile);
         FileChannel channel = fis.getChannel()) {
 
@@ -354,8 +405,9 @@ public final class TraceParser implements Closeable {
     }
   }
 
-  private void parseExternalData() {
-    File traceFile = new File(traceName + ".dat");
+  private void parseExternalData(final int snapshotVersion) {
+    File traceFile = new File(getTraceName(snapshotVersion) + ".dat");
+    // TODO
 
     ByteBuffer bb = ByteBuffer.allocate(16);
     bb.order(ByteOrder.LITTLE_ENDIAN);
@@ -394,7 +446,7 @@ public final class TraceParser implements Closeable {
   }
 
   protected void processContext(final Subtrace location, final EntityNode context) {
-    parseTrace(false, location, context);
+    parseTrace(false, location, context, location.snapshot);
   }
 
   private static long getId(final ByteBuffer b, final int numbytes) {

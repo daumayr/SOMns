@@ -40,6 +40,7 @@ public class ReplayData {
   protected static class Subtrace {
     public final long startOffset;
     public long       length;
+    public int        snapshot;
 
     Subtrace(final long startOffset) {
       this.startOffset = startOffset;
@@ -67,7 +68,7 @@ public class ReplayData {
         subtraces = new HashMap<>();
       }
 
-      assert !retrieved;
+      // assert !retrieved;
 
       // TODO probably can be done more efficiently
       while (subtraces.containsKey(ordering) || ordering < nextContext) {
@@ -94,7 +95,9 @@ public class ReplayData {
         return true;
       } else {
         Output.println("Context " + nextContext + " not present ");
-        nextContext++;
+        parser.scanNextTrace();
+
+        // nextContext++;
         detail = subtraces.get(nextContext);
         if (detail != null) {
           parser.processContext(detail, this);
