@@ -628,7 +628,7 @@ export class View {
 
   public updateTraceData(data: TraceDataUpdate) {
     this.systemView.updateTraceData(data);
-    this.protocolView.updateTraceData(data);
+    //this.protocolView.updateTraceData(data);
 
     for (const act of data.activities) {
       this.displayActivity(act);

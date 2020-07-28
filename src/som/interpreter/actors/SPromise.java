@@ -458,7 +458,7 @@ public class SPromise extends SObjectWithClass {
      * This field is reused in Chained Promises to store the version number of the chaining
      * event. Needed for lost chaining to establish the correct order of chained Promises.
      */
-    private long      resolvingActor = -1;
+    protected long    resolvingActor = -1;
     protected boolean canBeLost      = true;
 
     @Override
@@ -861,9 +861,8 @@ public class SPromise extends SObjectWithClass {
     }
   }
 
-  public static final class SMedeorPromise extends SPromise {
+  public static final class SMedeorPromise extends STracingPromise {
     protected final long promiseId;
-    protected long       resolvingActor;
 
     protected SMedeorPromise(final Actor owner, final boolean haltOnResolver,
         final boolean haltOnResolution, final SourceSection section) {
@@ -873,6 +872,7 @@ public class SPromise extends SObjectWithClass {
           PassiveEntityType.PROMISE, promiseId, section);
     }
 
+    @Override
     public long getResolvingActor() {
       if (!VmSettings.TRACK_SNAPSHOT_ENTITIES) {
         assert isCompleted();

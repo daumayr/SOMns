@@ -51,6 +51,10 @@ public final class SSymbol extends SAbstractObject {
       if (VmSettings.TRACK_SNAPSHOT_ENTITIES) {
         SnapshotBackend.registerSymbol(this);
       }
+
+      if (VmSettings.KOMPOS_TRACING) {
+        TracingBackend.logSymbol(this);
+      }
     } else {
       symbolId = 0;
     }
