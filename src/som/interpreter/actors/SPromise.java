@@ -182,6 +182,30 @@ public class SPromise extends SObjectWithClass {
     return promiseClass;
   }
 
+  public int getNumChainedUnsync() {
+    if (chainedPromise == null) {
+      return 0;
+    }
+
+    return (chainedPromiseExt == null ? 1 : 1 + chainedPromiseExt.size());
+  }
+
+  public int getNumWhenResolvedUnsync() {
+    if (whenResolved == null) {
+      return 0;
+    }
+
+    return (whenResolvedExt == null ? 1 : 1 + whenResolvedExt.size());
+  }
+
+  public int getNumOnErrorUnsync() {
+    if (onError == null) {
+      return 0;
+    }
+
+    return (onErrorExt == null ? 1 : 1 + onErrorExt.size());
+  }
+
   public final synchronized SPromise getChainedPromiseFor(final Actor target,
       final RecordOneEvent recordPromiseChaining) {
     SPromise remote = SPromise.createPromise(target, haltOnResolver,
