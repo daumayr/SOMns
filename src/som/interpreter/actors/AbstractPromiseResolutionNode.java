@@ -15,7 +15,6 @@ import som.VM;
 import som.interpreter.actors.SPromise.Resolution;
 import som.interpreter.actors.SPromise.SReplayPromise;
 import som.interpreter.actors.SPromise.SResolver;
-import som.interpreter.actors.SPromise.STracingPromise;
 import som.interpreter.nodes.nary.QuaternaryExpressionNode;
 import som.interpreter.nodes.nary.UnaryExpressionNode;
 import som.vm.VmSettings;
@@ -34,7 +33,6 @@ public abstract class AbstractPromiseResolutionNode extends QuaternaryExpression
   @Child protected WrapReferenceNode   wrapper = WrapReferenceNodeGen.create();
   @Child protected UnaryExpressionNode haltNode;
   @Child protected RecordOneEvent      tracePromiseResolution;
-  @Child protected RecordOneEvent      tracePromiseResolutionEnd;
   @Child protected RecordOneEvent      tracePromiseChaining;
 
   private final ValueProfile whenResolvedProfile = ValueProfile.createClassProfile();
@@ -43,7 +41,6 @@ public abstract class AbstractPromiseResolutionNode extends QuaternaryExpression
     haltNode = insert(SuspendExecutionNodeGen.create(0, null));
     if (VmSettings.SENDER_SIDE_TRACING) {
       tracePromiseResolution = new RecordOneEvent(TraceRecord.PROMISE_RESOLUTION);
-      tracePromiseResolutionEnd = new RecordOneEvent(TraceRecord.PROMISE_RESOLUTION_END);
       tracePromiseChaining = new RecordOneEvent(TraceRecord.PROMISE_CHAINED);
     }
   }
@@ -140,8 +137,7 @@ public abstract class AbstractPromiseResolutionNode extends QuaternaryExpression
           }
 
           if (VmSettings.SENDER_SIDE_TRACING) {
-            tracePromiseChaining.record(((STracingPromise) promiseValue).version);
-            ((STracingPromise) promiseValue).version++;
+            tracePromiseChaining.record(promiseValue.getNumChainedUnsync());
           }
           promiseValue.addChainedPromise(promiseToBeResolved);
         }
@@ -156,18 +152,16 @@ public abstract class AbstractPromiseResolutionNode extends QuaternaryExpression
     Actor current = EventualMessage.getActorCurrentMessageIsExecutionOn();
 
     resolve(type, wrapper, promise, result, current, actorPool, haltOnResolution,
-        whenResolvedProfile, tracePromiseResolution, tracePromiseResolutionEnd);
+        whenResolvedProfile, tracePromiseResolution);
   }
 
   public static void resolve(final Resolution type,
       final WrapReferenceNode wrapper, final SPromise promise,
       final Object result, final Actor current, final ForkJoinPool actorPool,
       final boolean haltOnResolution, final ValueProfile whenResolvedProfile,
-      final RecordOneEvent tracePromiseResolution2,
-      final RecordOneEvent tracePromiseResolutionEnd2) {
+      final RecordOneEvent tracePromiseResolution2) {
     Object wrapped = wrapper.execute(result, promise.owner, current);
     SResolver.resolveAndTriggerListenersUnsynced(type, result, wrapped, promise,
-        current, actorPool, haltOnResolution, whenResolvedProfile, tracePromiseResolution2,
-        tracePromiseResolutionEnd2);
+        current, actorPool, haltOnResolution, whenResolvedProfile, tracePromiseResolution2);
   }
 }

@@ -9,7 +9,6 @@ import com.oracle.truffle.api.nodes.Node;
 import som.interpreter.actors.EventualMessage.AbstractPromiseSendMessage;
 import som.interpreter.actors.EventualMessage.PromiseMessage;
 import som.interpreter.actors.SPromise.SReplayPromise;
-import som.interpreter.actors.SPromise.STracingPromise;
 import som.vm.VmSettings;
 import tools.concurrency.TracingActors.TracingActor;
 import tools.dym.DynamicMetrics;
@@ -86,8 +85,7 @@ public abstract class RegisterOnPromiseNode {
 
           if (VmSettings.SENDER_SIDE_TRACING) {
             // This is whenResolved
-            promiseMsgSend.record(((STracingPromise) promise).version);
-            ((STracingPromise) promise).version++;
+            promiseMsgSend.record(0);
           }
 
           if (promise.isErroredUnsync()) {
@@ -165,8 +163,7 @@ public abstract class RegisterOnPromiseNode {
 
           if (VmSettings.SENDER_SIDE_TRACING) {
             // This is whenResolved
-            promiseMsgSend.record(((STracingPromise) promise).version);
-            ((STracingPromise) promise).version++;
+            promiseMsgSend.record(0);
           }
 
           if (promise.isResolvedUnsync()) {
