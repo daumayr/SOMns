@@ -1,5 +1,7 @@
 package tools.replay.nodes;
 
+import com.oracle.truffle.api.profiles.ValueProfile;
+
 import tools.replay.TraceRecord;
 import tools.replay.actors.UniformExecutionTrace.UniformTraceBuffer;
 
@@ -8,7 +10,7 @@ public final class RecordEventNodes {
   public static final int ONE_EVENT_SIZE = 1 + Long.BYTES;
 
   public static class RecordOneEvent extends TraceNode {
-    @Child TraceContextNode tracer = TraceContextNodeGen.create();
+    private final ValueProfile contextProfile = ValueProfile.createClassProfile();
 
     private final TraceRecord eventType;
 
@@ -18,7 +20,7 @@ public final class RecordEventNodes {
 
     private UniformTraceBuffer getStorage(final int entrySize) {
       UniformTraceBuffer buffer = getCurrentBuffer();
-      buffer.ensureSufficientSpace(entrySize, tracer);
+      buffer.ensureSufficientSpace(entrySize, contextProfile);
       return buffer;
     }
 

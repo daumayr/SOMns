@@ -11,6 +11,7 @@ import com.oracle.truffle.api.dsl.GenerateNodeFactory;
 import com.oracle.truffle.api.dsl.Specialization;
 import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.instrumentation.Tag;
+import com.oracle.truffle.api.profiles.ValueProfile;
 
 import bd.primitives.Primitive;
 import som.VM;
@@ -50,8 +51,6 @@ import tools.replay.TraceParser;
 import tools.replay.TraceRecord;
 import tools.replay.actors.UniformExecutionTrace;
 import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
-import tools.replay.nodes.TraceContextNode;
-import tools.replay.nodes.TraceContextNodeGen;
 
 
 public abstract class ChannelPrimitives {
@@ -157,7 +156,7 @@ public abstract class ChannelPrimitives {
 
     protected final VM vm;
 
-    private final TraceContextNode trace = TraceContextNodeGen.create();
+    private final ValueProfile contextProfile = ValueProfile.createClassProfile();
 
     public TracingProcess(final SObjectWithClass obj, final boolean stopOnRootNode,
         final VM vm) {
@@ -184,7 +183,7 @@ public abstract class ChannelPrimitives {
       if (VmSettings.KOMPOS_TRACING) {
         KomposTrace.currentActivity(this);
       } else if (VmSettings.UNIFORM_TRACING) {
-        UniformExecutionTrace.recordActivityContext(this, trace);
+        UniformExecutionTrace.recordActivityContext(this, contextProfile);
       }
     }
 

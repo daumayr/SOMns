@@ -9,6 +9,7 @@ import java.util.concurrent.RecursiveTask;
 import com.oracle.truffle.api.RootCallTarget;
 import com.oracle.truffle.api.interop.InteropLibrary;
 import com.oracle.truffle.api.library.ExportLibrary;
+import com.oracle.truffle.api.profiles.ValueProfile;
 
 import som.VM;
 import som.interop.SomInteropObject;
@@ -25,8 +26,6 @@ import tools.debugger.entities.ActivityType;
 import tools.replay.ReplayRecord;
 import tools.replay.TraceParser;
 import tools.replay.actors.UniformExecutionTrace;
-import tools.replay.nodes.TraceContextNode;
-import tools.replay.nodes.TraceContextNodeGen;
 
 
 public final class TaskThreads {
@@ -70,9 +69,11 @@ public final class TaskThreads {
         if (VmSettings.KOMPOS_TRACING) {
           KomposTrace.currentActivity(this);
         } else if (VmSettings.UNIFORM_TRACING && this instanceof TracedThreadTask) {
-          UniformExecutionTrace.recordActivityContext(this, ((TracedThreadTask) this).trace);
+          UniformExecutionTrace.recordActivityContext(this,
+              ((TracedThreadTask) this).contextProfile);
         } else if (VmSettings.UNIFORM_TRACING && this instanceof TracedForkJoinTask) {
-          UniformExecutionTrace.recordActivityContext(this, ((TracedForkJoinTask) this).trace);
+          UniformExecutionTrace.recordActivityContext(this,
+              ((TracedForkJoinTask) this).contextProfile);
         }
 
         ForkJoinThread thread = (ForkJoinThread) Thread.currentThread();
@@ -112,11 +113,11 @@ public final class TaskThreads {
   public static class TracedForkJoinTask extends SomForkJoinTask {
     private static final long serialVersionUID = -2763766745049695112L;
 
-    private final long             id;
-    protected boolean              stopOnJoin;
-    protected final VM             vm;
-    private int                    nextTraceBufferId;
-    private final TraceContextNode trace = TraceContextNodeGen.create();
+    private final long         id;
+    protected boolean          stopOnJoin;
+    protected final VM         vm;
+    private int                nextTraceBufferId;
+    private final ValueProfile contextProfile = ValueProfile.createClassProfile();
 
     public TracedForkJoinTask(final Object[] argArray, final boolean stopOnRoot, final VM vm) {
       super(argArray, stopOnRoot);
@@ -200,8 +201,8 @@ public final class TaskThreads {
     private final long id;
     protected boolean  stopOnJoin;
 
-    private int                    nextTraceBufferId;
-    private final TraceContextNode trace = TraceContextNodeGen.create();
+    private int                nextTraceBufferId;
+    private final ValueProfile contextProfile = ValueProfile.createClassProfile();
 
     protected final VM vm;
 

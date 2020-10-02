@@ -13,12 +13,17 @@ public abstract class TraceContextNode extends TraceNode {
 
   public abstract void execute(Activity a);
 
+  // @Specialization
+  // protected void recordActor(final TracingActor activity) {
+  // writeContext(activity.getId(), activity.getNextTraceBufferId());
+  // }
+
   @Specialization
   protected void recordGeneric(final Activity activity) {
     writeContext(vp.profile(activity).getId(), vp.profile(activity).getNextTraceBufferId());
   }
 
-  protected void writeContext(final long id, final int bufferId) {
+  protected final void writeContext(final long id, final int bufferId) {
     UniformTraceBuffer buffer = getCurrentBuffer();
     int pos = buffer.position();
 

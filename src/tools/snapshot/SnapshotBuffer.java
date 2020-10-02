@@ -1,12 +1,13 @@
 package tools.snapshot;
 
+import com.oracle.truffle.api.profiles.ValueProfile;
+
 import som.interpreter.actors.Actor.ActorProcessingThread;
 import som.interpreter.objectstorage.ClassFactory;
 import som.vm.VmSettings;
 import som.vm.constants.Classes;
 import tools.concurrency.TraceBuffer;
 import tools.concurrency.TracingActors.TracingActor;
-import tools.replay.nodes.TraceContextNode;
 import tools.snapshot.deserialization.DeserializationBuffer;
 
 
@@ -77,7 +78,7 @@ public class SnapshotBuffer extends TraceBuffer {
   }
 
   @Override
-  protected void swapBufferWhenNotEnoughSpace(final TraceContextNode tracer) {
+  protected void swapBufferWhenNotEnoughSpace(final ValueProfile contextProfile) {
     throw new UnsupportedOperationException("TODO find a solution for snapshot size");
   }
 

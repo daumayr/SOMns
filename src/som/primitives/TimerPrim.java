@@ -14,6 +14,7 @@ import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 import com.oracle.truffle.api.RootCallTarget;
 import com.oracle.truffle.api.dsl.GenerateNodeFactory;
 import com.oracle.truffle.api.dsl.Specialization;
+import com.oracle.truffle.api.profiles.ValueProfile;
 
 import bd.primitives.Primitive;
 import som.VM;
@@ -30,11 +31,10 @@ import som.vmobjects.SBlock;
 import som.vmobjects.SInvokable;
 import som.vmobjects.SSymbol;
 import tools.concurrency.TracingActors.ReplayActor;
+import tools.concurrency.TracingActors.TracingActor;
 import tools.replay.TraceParser;
-import tools.replay.actors.UniformExecutionTrace;
 import tools.replay.actors.ExternalEventualMessage.ExternalDirectMessage;
-import tools.replay.nodes.TraceContextNode;
-import tools.replay.nodes.TraceContextNodeGen;
+import tools.replay.actors.UniformExecutionTrace;
 
 
 @GenerateNodeFactory
@@ -73,7 +73,7 @@ public abstract class TimerPrim extends BinarySystemOperation {
     }
   }
 
-  @Child protected TraceContextNode tracer = TraceContextNodeGen.create();
+  private final ValueProfile contextProfile = ValueProfile.createClassProfile();
 
   @Specialization
   public final Object doResolveAfter(final SBlock target, final long timeout) {
@@ -95,7 +95,7 @@ public abstract class TimerPrim extends BinarySystemOperation {
 
     int id = nextTimerTaskId.getAndIncrement();
     if (VmSettings.UNIFORM_TRACING) {
-      UniformExecutionTrace.intSystemCall(id, tracer);
+      UniformExecutionTrace.intSystemCall(id, contextProfile);
     }
 
     timer.schedule(new TimerTask() {

@@ -27,6 +27,7 @@ import com.oracle.truffle.api.interop.UnsupportedMessageException;
 import com.oracle.truffle.api.interop.UnsupportedTypeException;
 import com.oracle.truffle.api.library.CachedLibrary;
 import com.oracle.truffle.api.nodes.Node;
+import com.oracle.truffle.api.profiles.ValueProfile;
 import com.oracle.truffle.api.source.SourceSection;
 
 import bd.primitives.Primitive;
@@ -65,8 +66,6 @@ import tools.concurrency.TracingActors.TracingActor;
 import tools.concurrency.TracingBackend;
 import tools.dym.Tags.BasicPrimitiveOperation;
 import tools.replay.actors.UniformExecutionTrace;
-import tools.replay.nodes.TraceContextNode;
-import tools.replay.nodes.TraceContextNodeGen;
 import tools.snapshot.SnapshotBackend;
 import tools.snapshot.SnapshotBuffer;
 import tools.snapshot.deserialization.DeserializationBuffer;
@@ -369,7 +368,7 @@ public final class SystemPrims {
   @GenerateNodeFactory
   @Primitive(primitive = "systemTime:")
   public abstract static class TimePrim extends UnarySystemOperation {
-    @Child TraceContextNode tracer = TraceContextNodeGen.create();
+    private final ValueProfile contextProfile = ValueProfile.createClassProfile();
 
     @Specialization
     public final long doSObject(final Object receiver) {
@@ -379,7 +378,7 @@ public final class SystemPrims {
 
       long res = System.currentTimeMillis() - startTime;
       if (VmSettings.UNIFORM_TRACING) {
-        UniformExecutionTrace.longSystemCall(res, tracer);
+        UniformExecutionTrace.longSystemCall(res, contextProfile);
       }
       return res;
     }
@@ -459,7 +458,7 @@ public final class SystemPrims {
   @Primitive(primitive = "systemTicks:", selector = "ticks",
       specializer = IsSystemModule.class, noWrapper = true)
   public abstract static class TicksPrim extends UnarySystemOperation implements Operation {
-    @Child TraceContextNode tracer = TraceContextNodeGen.create();
+    private final ValueProfile contextProfile = ValueProfile.createClassProfile();
 
     @Specialization
     public final long doSObject(final Object receiver) {
@@ -470,7 +469,7 @@ public final class SystemPrims {
       long res = System.nanoTime() / 1000L - startMicroTime;
 
       if (VmSettings.UNIFORM_TRACING) {
-        UniformExecutionTrace.longSystemCall(res, tracer);
+        UniformExecutionTrace.longSystemCall(res, contextProfile);
       }
       return res;
     }

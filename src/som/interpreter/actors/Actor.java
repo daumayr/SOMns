@@ -12,6 +12,7 @@ import com.oracle.truffle.api.RootCallTarget;
 import com.oracle.truffle.api.Truffle;
 import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.nodes.RootNode;
+import com.oracle.truffle.api.profiles.ValueProfile;
 
 import som.VM;
 import som.interpreter.SomLanguage;
@@ -29,8 +30,6 @@ import tools.dym.DynamicMetrics;
 import tools.replay.TraceRecord;
 import tools.replay.actors.UniformExecutionTrace;
 import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
-import tools.replay.nodes.TraceContextNode;
-import tools.replay.nodes.TraceContextNodeGen;
 import tools.snapshot.SnapshotBuffer;
 
 
@@ -198,12 +197,14 @@ public class Actor implements Activity {
 
     protected int size = 0;
 
+    @TruffleBoundary
     protected ExecAllMessages(final Actor actor, final VM vm) {
       this.actor = actor;
       this.vm = vm;
+      this.contextProfile = ValueProfile.createClassProfile();
     }
 
-    private static final TraceContextNode tracer = TraceContextNodeGen.create();
+    private final ValueProfile contextProfile;
 
     @Override
     public void run() {
@@ -240,7 +241,7 @@ public class Actor implements Activity {
       t.currentlyExecutingActor = actor;
 
       if (VmSettings.UNIFORM_TRACING) {
-        UniformExecutionTrace.recordActivityContext(actor, tracer);
+        UniformExecutionTrace.recordActivityContext(actor, contextProfile);
       } else if (VmSettings.KOMPOS_TRACING) {
         KomposTrace.currentActivity(actor);
       }

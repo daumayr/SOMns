@@ -3,12 +3,12 @@ package tools.concurrency;
 import java.lang.reflect.Field;
 
 import com.oracle.truffle.api.CompilerDirectives;
+import com.oracle.truffle.api.profiles.ValueProfile;
 
 import som.interpreter.actors.Actor.ActorProcessingThread;
 import som.vm.VmSettings;
 import sun.misc.Unsafe;
 import tools.replay.actors.UniformExecutionTrace.UniformTraceBuffer;
-import tools.replay.nodes.TraceContextNode;
 
 
 public abstract class TraceBuffer {
@@ -128,15 +128,15 @@ public abstract class TraceBuffer {
   }
 
   public final boolean ensureSufficientSpace(final int requiredSpace,
-      final TraceContextNode tracer) {
+      final ValueProfile contextProfile) {
     if (position + requiredSpace >= bufferSize) {
-      swapBufferWhenNotEnoughSpace(tracer);
+      swapBufferWhenNotEnoughSpace(contextProfile);
       return true;
     }
     return false;
   }
 
-  protected void swapBufferWhenNotEnoughSpace(final TraceContextNode tracer) {
+  protected void swapBufferWhenNotEnoughSpace(final ValueProfile contextProfile) {
     swapStorage();
   }
 
