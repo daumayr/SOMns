@@ -68,7 +68,6 @@ public abstract class RegisterOnPromiseNode {
 
           if (npr.type == TraceRecord.PROMISE_MESSAGE) {
             current.getNextReplayEvent();
-            msg.messageId = npr.eventNo;
             ((SReplayPromise) promise).registerOnResolvedReplay(msg);
             return;
           }
