@@ -104,7 +104,11 @@ public abstract class TimerPrim extends BinarySystemOperation {
         ExternalDirectMessage msg = new ExternalDirectMessage(targetActor,
             VALUE_SELECTOR, new Object[] {target}, timerActor, null, valueCallTarget,
             (short) 0, id);
-        targetActor.send(msg, actorPool);
+        if (VmSettings.SENDER_SIDE_TRACING) {
+          ((TracingActor) targetActor).tracedSend(msg, actorPool);
+        } else {
+          targetActor.send(msg, actorPool);
+        }
       }
     }, timeout);
     return true;
@@ -143,6 +147,10 @@ public abstract class TimerPrim extends BinarySystemOperation {
     DirectMessage msg = new DirectMessage(target.getActor(), VALUE_SELECTOR,
         new Object[] {target.getValue()}, timerActor, null, valueCallTarget,
         false, false);
-    target.getActor().send(msg, actorPool);
+    if (VmSettings.SENDER_SIDE_TRACING) {
+      ((TracingActor) target.getActor()).tracedSend(msg, actorPool);
+    } else {
+      target.getActor().send(msg, actorPool);
+    }
   }
 }

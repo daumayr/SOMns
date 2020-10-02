@@ -13,6 +13,7 @@ import som.interpreter.actors.EventualMessage.PromiseCallbackMessage;
 import som.interpreter.actors.EventualMessage.PromiseMessage;
 import som.interpreter.actors.EventualMessage.PromiseSendMessage;
 import som.vm.VmSettings;
+import tools.concurrency.TracingActors.TracingActor;
 import tools.replay.ReplayRecord;
 import tools.replay.TraceRecord;
 
@@ -50,7 +51,11 @@ public abstract class SchedulePromiseHandlerNode extends Node {
       msg.messageId = npr.eventNo;
     }
 
-    msg.originalSender.send(msg, actorPool);
+    if (VmSettings.SENDER_SIDE_TRACING) {
+      ((TracingActor) msg.originalSender).tracedSend(msg, actorPool);
+    } else {
+      msg.originalSender.send(msg, actorPool);
+    }
   }
 
   @Specialization
@@ -91,7 +96,11 @@ public abstract class SchedulePromiseHandlerNode extends Node {
       msg.messageId = npr.eventNo;
     }
 
-    finalTarget.send(msg, actorPool);
+    if (VmSettings.SENDER_SIDE_TRACING) {
+      ((TracingActor) finalTarget).tracedSend(msg, actorPool);
+    } else {
+      finalTarget.send(msg, actorPool);
+    }
   }
 
   private final IntValueProfile numArgs = IntValueProfile.createIdentityProfile();

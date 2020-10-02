@@ -39,6 +39,7 @@ import som.vmobjects.SSymbol;
 import tools.concurrency.KomposTrace;
 import tools.concurrency.Tags.EventualMessageSend;
 import tools.concurrency.Tags.ExpressionBreakpoint;
+import tools.concurrency.TracingActors.TracingActor;
 import tools.debugger.entities.BreakpointType;
 import tools.debugger.entities.SendOp;
 import tools.debugger.nodes.AbstractBreakpointNode;
@@ -228,7 +229,11 @@ public class EventualSendNode extends ExprWithTagsNode {
             target.getId());
       }
 
-      target.send(msg, actorPool);
+      if (VmSettings.SENDER_SIDE_TRACING) {
+        ((TracingActor) target).tracedSend(msg, actorPool);
+      } else {
+        target.send(msg, actorPool);
+      }
     }
 
     protected void sendPromiseMessage(final Object[] args, final SPromise rcvr,
@@ -308,7 +313,11 @@ public class EventualSendNode extends ExprWithTagsNode {
         msg.setReplayVersion(npr.eventNo);
       }
 
-      current.send(msg, actorPool);
+      if (VmSettings.SENDER_SIDE_TRACING) {
+        ((TracingActor) current).tracedSend(msg, actorPool);
+      } else {
+        current.send(msg, actorPool);
+      }
 
       return result;
     }
@@ -362,7 +371,11 @@ public class EventualSendNode extends ExprWithTagsNode {
         msg.setReplayVersion(npr.eventNo);
       }
 
-      current.send(msg, actorPool);
+      if (VmSettings.SENDER_SIDE_TRACING) {
+        ((TracingActor) current).tracedSend(msg, actorPool);
+      } else {
+        current.send(msg, actorPool);
+      }
 
       if (VmSettings.DYNAMIC_METRICS) {
         numPromisesAvoided.getAndIncrement();

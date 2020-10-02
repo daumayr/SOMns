@@ -23,6 +23,7 @@ import som.vmobjects.SClass;
 import som.vmobjects.SObjectWithClass;
 import tools.concurrency.KomposTrace;
 import tools.concurrency.TracingActivityThread;
+import tools.concurrency.TracingActors.TracingActor;
 import tools.debugger.entities.PassiveEntityType;
 import tools.dym.DynamicMetrics;
 import tools.replay.ReplayRecord;
@@ -290,7 +291,12 @@ public class SPromise extends SObjectWithClass {
     if (haltOnResolution) {
       msg.enableHaltOnReceive();
     }
-    msg.getTarget().send(msg, actorPool);
+
+    if (VmSettings.SENDER_SIDE_TRACING) {
+      ((TracingActor) msg.getTarget()).tracedSend(msg, actorPool);
+    } else {
+      msg.getTarget().send(msg, actorPool);
+    }
   }
 
   public final synchronized void addChainedPromise(final SPromise remote) {

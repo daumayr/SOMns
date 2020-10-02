@@ -60,17 +60,18 @@ public class TracingActors {
       throw new UnsupportedOperationException("Please remove this call and use getId instead");
     }
 
-    @Override
-    @TruffleBoundary
-    public synchronized void send(final EventualMessage msg,
+    protected synchronized final long doSend(final EventualMessage msg,
         final ForkJoinPool actorPool) {
-      super.send(msg, actorPool);
+      send(msg, actorPool);
       if (VmSettings.SENDER_SIDE_TRACING) {
-        msg.getTracingNode().record(this.version);
-        this.version++;
-        // TODO maybe try to get the recording itself done outside the synchronized method
+        return this.version++;
       }
 
+      return 0;
+    }
+
+    public final void tracedSend(final EventualMessage msg, final ForkJoinPool actorPool) {
+      msg.getTracingNode().record(doSend(msg, actorPool));
     }
 
     @Override
