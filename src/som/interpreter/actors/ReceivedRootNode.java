@@ -11,16 +11,16 @@ import com.oracle.truffle.api.source.SourceSection;
 import som.VM;
 import som.interpreter.SArguments;
 import som.interpreter.SomLanguage;
-import som.interpreter.actors.EventualMessage.PromiseMessage;
 import som.interpreter.actors.SPromise.SResolver;
 import som.vm.VmSettings;
 import tools.concurrency.KomposTrace;
-import tools.concurrency.TracingActors.TracingActor;
 import tools.debugger.WebDebugger;
 import tools.debugger.entities.DynamicScopeType;
 import tools.dym.DynamicMetrics;
 import tools.replay.TraceRecord;
 import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
+import tools.replay.nodes.RecordMessageReceivedNode;
+import tools.replay.nodes.RecordMessageReceivedNodeFactory;
 import tools.snapshot.nodes.MessageSerializationNode;
 import tools.snapshot.nodes.MessageSerializationNodeFactory;
 
@@ -30,9 +30,9 @@ public abstract class ReceivedRootNode extends RootNode {
   @Child protected AbstractPromiseResolutionNode resolve;
   @Child protected AbstractPromiseResolutionNode error;
 
-  @Child protected RecordOneEvent           messageTracer;
-  @Child protected RecordOneEvent           promiseMessageTracer;
-  @Child protected MessageSerializationNode serializer;
+  @Child protected RecordOneEvent            messageTracer;
+  @Child protected RecordMessageReceivedNode receiverSideTracer;
+  @Child protected MessageSerializationNode  serializer;
 
   private final VM            vm;
   protected final WebDebugger dbg;
@@ -55,11 +55,10 @@ public abstract class ReceivedRootNode extends RootNode {
       serializer = null;
     }
 
-    if (VmSettings.UNIFORM_TRACING) {
+    if (VmSettings.SENDER_SIDE_TRACING) {
       messageTracer = new RecordOneEvent(TraceRecord.MESSAGE);
-    }
-    if (VmSettings.RECEIVER_SIDE_TRACING) {
-      promiseMessageTracer = new RecordOneEvent(TraceRecord.PROMISE_MESSAGE);
+    } else if (VmSettings.RECEIVER_SIDE_TRACING) {
+      receiverSideTracer = RecordMessageReceivedNodeFactory.create();
     }
   }
 
@@ -91,10 +90,7 @@ public abstract class ReceivedRootNode extends RootNode {
     }
 
     if (VmSettings.RECEIVER_SIDE_TRACING) {
-      if (msg instanceof PromiseMessage) {
-        promiseMessageTracer.record(msg.messageId);
-      }
-      messageTracer.record(((TracingActor) msg.getSender()).getId());
+      receiverSideTracer.execute(msg);
     }
 
     try {
