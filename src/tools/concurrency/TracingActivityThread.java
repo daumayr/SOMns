@@ -13,13 +13,15 @@ import som.interpreter.actors.Actor.ActorProcessingThread;
 import som.vm.Activity;
 import som.vm.VmSettings;
 import tools.TraceData;
+import tools.concurrency.TracingActors.TracingActor;
 import tools.debugger.SteppingStrategy;
 import tools.debugger.entities.EntityType;
 import tools.debugger.entities.SteppingType;
 import tools.replay.ReplayRecord;
 import tools.replay.TraceRecord;
+import tools.replay.nodes.TraceContextNode;
 import tools.snapshot.SnapshotBackend;
-import tools.snapshot.SnapshotBuffer;
+import tools.snapshot.SnapshotHeap;
 
 
 public abstract class TracingActivityThread extends ForkJoinWorkerThread {
@@ -42,9 +44,12 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
   public long erroredPromises;
 
   protected final TraceBuffer traceBuffer;
-  protected SnapshotBuffer    snapshotBuffer;
+  protected SnapshotHeap      snapshotHeap;
+  protected SnapshotHeap      nextSnapshotHeap;
+  protected ArrayList<Long>   messageLocations;
   protected Object[]          externalData;
   protected int               extIndex = 0;
+  public boolean              wasCaptured;
 
   protected SteppingStrategy steppingStrategy;
 
@@ -98,7 +103,8 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
     this.vm = vm;
 
     if (VmSettings.SNAPSHOTS_ENABLED) {
-      this.snapshotBuffer = new SnapshotBuffer((ActorProcessingThread) this);
+      this.snapshotHeap = new SnapshotHeap((ActorProcessingThread) this);
+      this.messageLocations = new ArrayList<>();
     }
 
     if (VmSettings.UNIFORM_TRACING || VmSettings.KOMPOS_TRACING) {
@@ -106,6 +112,11 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
       traceBuffer = TraceBuffer.create(threadId);
       nextEntityId = 1 + (threadId << TraceData.ENTITY_ID_BITS);
       externalData = new Object[EXTERNAL_BUFFER_SIZE];
+    } else if (VmSettings.SNAPSHOTS_ENABLED) {
+      threadId = threadIdGen.getAndIncrement();
+      nextEntityId = 0;
+      traceBuffer = null;
+      externalData = null;
     } else {
       threadId = 0;
       nextEntityId = 0;
@@ -180,6 +191,15 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
     }
   }
 
+  public final void incrementSnapshotForSerialization() {
+    this.snapshotId++;
+  }
+
+  public final void addMessageLocation(final long actorId, final long messageAdress) {
+    messageLocations.add(actorId);
+    messageLocations.add(messageAdress);
+  }
+
   @Override
   protected void onStart() {
     super.onStart();
@@ -200,9 +220,6 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
       traceBuffer.returnBuffer(null);
       TracingBackend.addExternalData(externalData, this);
       TracingBackend.unregisterThread(this);
-    }
-    if (VmSettings.SNAPSHOTS_ENABLED) {
-      SnapshotBackend.registerSnapshotBuffer(snapshotBuffer);
     }
 
     if (!TruffleOptions.AOT && VmSettings.USE_PINNING) {
@@ -236,11 +253,24 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
     return threadId;
   }
 
-  public SnapshotBuffer getSnapshotBuffer() {
-    if (SnapshotBackend.getSnapshotVersion() > this.snapshotId) {
+  public SnapshotHeap getSnapshotHeap() {
+    if (SnapshotBackend.getSnapshotVersion() != this.snapshotId) {
       newSnapshot();
     }
-    return snapshotBuffer;
+    return snapshotHeap;
+  }
+
+  public SnapshotHeap getSnapshotHeapWithoutUpdate() {
+    return snapshotHeap;
+  }
+
+  public SnapshotHeap getNextSnapshotHeap() {
+    if (nextSnapshotHeap == null) {
+      nextSnapshotHeap =
+          new SnapshotHeap((ActorProcessingThread) this, (byte) (this.snapshotId + 1));
+    }
+
+    return nextSnapshotHeap;
   }
 
   public byte getSnapshotId() {
@@ -248,16 +278,32 @@ public abstract class TracingActivityThread extends ForkJoinWorkerThread {
   }
 
   private void newSnapshot() {
-    traceBuffer.swapStorage();
-    if (extIndex != 0) {
-      TracingBackend.addExternalData(externalData, this);
-      externalData = new Object[EXTERNAL_BUFFER_SIZE];
-      extIndex = 0;
+    TracingActor ta = (TracingActor) ((ActorProcessingThread) this).getCurrentActor();
+    if (VmSettings.UNIFORM_TRACING) {
+      TraceContextNode tracer = ta.getActorContextNode();
+      traceBuffer.swapStorage();
+      if (tracer != null) {
+        tracer.execute(ta);
+      }
+
+      if (extIndex != 0) {
+        TracingBackend.addExternalData(externalData, this);
+        externalData = new Object[EXTERNAL_BUFFER_SIZE];
+        extIndex = 0;
+      }
     }
     this.snapshotId = SnapshotBackend.getSnapshotVersion();
 
-    // get net snapshotbuffer
-    this.snapshotBuffer = new SnapshotBuffer((ActorProcessingThread) this);
-  }
+    if (this.nextSnapshotHeap != null) {
+      this.snapshotHeap = this.nextSnapshotHeap;
+      this.nextSnapshotHeap = null;
+    } else {
+      this.snapshotHeap = new SnapshotHeap((ActorProcessingThread) this);
+    }
+    this.messageLocations = new ArrayList<>();
 
+    if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.SNAPSHOT_REPLAY) {
+      SnapshotBackend.registerSnapshotBuffer(snapshotHeap, messageLocations);
+    }
+  }
 }

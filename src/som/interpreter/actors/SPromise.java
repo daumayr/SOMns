@@ -14,9 +14,9 @@ import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 import com.oracle.truffle.api.profiles.ValueProfile;
 import com.oracle.truffle.api.source.SourceSection;
 
+import som.Output;
 import som.interpreter.SomLanguage;
 import som.interpreter.actors.EventualMessage.PromiseMessage;
-import som.interpreter.objectstorage.ClassFactory;
 import som.vm.Activity;
 import som.vm.VmSettings;
 import som.vmobjects.SClass;
@@ -30,6 +30,7 @@ import tools.replay.PassiveEntityWithEvents;
 import tools.replay.ReplayRecord;
 import tools.replay.TraceRecord;
 import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
+import tools.snapshot.SnapshotBackend;
 import tools.snapshot.nodes.PromiseSerializationNodesFactory.PromiseSerializationNodeFactory;
 import tools.snapshot.nodes.PromiseSerializationNodesFactory.ResolverSerializationNodeFactory;
 
@@ -73,11 +74,12 @@ public class SPromise extends SObjectWithClass {
 
   /** Used by snapshot deserialization. */
   public static SPromise createResolved(final Actor owner, final Object value,
-      final Resolution state) {
+      final Resolution state, final long version) {
     assert VmSettings.SNAPSHOTS_ENABLED;
     SPromise prom = createPromise(owner, false, false, null);
     prom.resolutionState = state;
     prom.value = value;
+    ((STracingPromise) prom).version = (int) version;
     return prom;
   }
 
@@ -161,6 +163,41 @@ public class SPromise extends SObjectWithClass {
     this.value = value;
   }
 
+  public final void resolveFromSnapshot(final Object value, final Resolution resolutionState,
+      final Actor resolver, final boolean schedule) {
+    assert value != null;
+    this.value = WrapReferenceNode.wrapForUse(owner, value, resolver, null);
+    this.resolutionState = resolutionState;
+
+    if (schedule) {
+      if (resolutionState == Resolution.SUCCESSFUL) {
+        SResolver.scheduleAllWhenResolvedSnapshot(this, value, resolver);
+      } else {
+        assert resolutionState == Resolution.ERRONEOUS;
+        SResolver.scheduleAllOnErrorSnapshot(this, value, resolver);
+      }
+      // resolveChainedPromisesUnsync(resolutionState, this, resolver, current, actorPool,
+      // haltOnResolution,
+      // whenResolvedProfile);
+    }
+  }
+
+  public final void unresolveFromSnapshot(final Resolution resolutionState) {
+    this.value = null;
+    this.resolutionState = resolutionState;
+    ((SReplayPromise) this).unresolved = true;
+
+    if (chainedPromise != null) {
+      chainedPromise.unresolveFromSnapshot(Resolution.CHAINED);
+
+      if (chainedPromiseExt != null) {
+        for (SPromise prom : chainedPromiseExt) {
+          prom.unresolveFromSnapshot(Resolution.CHAINED);
+        }
+      }
+    }
+  }
+
   public long getPromiseId() {
     return 0;
   }
@@ -173,8 +210,9 @@ public class SPromise extends SObjectWithClass {
     assert promiseClass == null || cls == null;
     promiseClass = cls;
     if (VmSettings.SNAPSHOTS_ENABLED) {
-      ClassFactory group = promiseClass.getInstanceFactory();
-      group.getSerializer().replace(PromiseSerializationNodeFactory.create(group));
+      promiseClass.customizeSerializerFactory(
+          PromiseSerializationNodeFactory.getInstance(),
+          PromiseSerializationNodeFactory.create());
     }
   }
 
@@ -203,13 +241,16 @@ public class SPromise extends SObjectWithClass {
     if (isCompleted()) {
       remote.value = value;
       remote.resolutionState = resolutionState;
-      if (VmSettings.RECEIVER_SIDE_TRACING || VmSettings.RECEIVER_SIDE_REPLAY) {
+
+      if (VmSettings.TRACK_PROMISE_RESOLVER) {
         ((STracingPromise) remote).resolvingActor = ((STracingPromise) this).resolvingActor;
       }
     } else {
 
       if (VmSettings.SENDER_SIDE_TRACING) {
         recordPromiseChaining.record(((STracingPromise) this).version);
+        ((STracingPromise) remote).setResolvingActorForSnapshot(
+            ((STracingPromise) this).version);
         ((STracingPromise) this).version++;
       }
       if (VmSettings.SENDER_SIDE_REPLAY) {
@@ -225,6 +266,14 @@ public class SPromise extends SObjectWithClass {
     if (VmSettings.DYNAMIC_METRICS) {
       numRegisteredWhenResolved.incrementAndGet();
     }
+
+    STracingPromise sp = (STracingPromise) this;
+    // TODO: implement fix
+    assert (sp.getSnapshotLocation() == -1
+        || sp.getSnapshotVersion() != SnapshotBackend.getSnapshotVersion())
+        || SnapshotBackend.getSnapshotVersion() == TracingActivityThread.currentThread()
+                                                                        .getSnapshotId();
+
     if (whenResolved == null) {
       whenResolved = msg;
     } else {
@@ -277,8 +326,20 @@ public class SPromise extends SObjectWithClass {
     msg.getTarget().send(msg, actorPool);
   }
 
+  protected final void scheduleCallbacksSnapshot(final Object result,
+      final PromiseMessage msg, final Actor current) {
+
+    assert owner != null;
+    msg.resolve(result, owner, current);
+    msg.getTarget().sendSnapshotMessage(msg);
+  }
+
   public final synchronized void addChainedPromise(final SPromise remote) {
     assert remote != null;
+
+    if (VmSettings.SNAPSHOTS_ENABLED && TracingActivityThread.currentThread().wasCaptured) {
+      ((STracingPromise) remote).canBeLost = false;
+    }
 
     remote.resolutionState = Resolution.CHAINED;
     if (chainedPromise == null) {
@@ -313,6 +374,11 @@ public class SPromise extends SObjectWithClass {
   }
 
   public final boolean assertNotCompleted() {
+    if (VmSettings.SNAPSHOT_REPLAY && this.isCompleted()) {
+      // Output.println("assertNotCompleted");
+      this.unresolveFromSnapshot(Resolution.UNRESOLVED);
+    }
+
     assert !isCompleted() : "Not sure yet what to do with re-resolving of promises? just ignore it? Error?";
     assert value == null : "If it isn't resolved yet, it shouldn't have a value";
     return true;
@@ -369,6 +435,15 @@ public class SPromise extends SObjectWithClass {
     return chainedPromiseExt;
   }
 
+  public boolean hasChainedPromise(final SPromise prom) {
+    if (this.chainedPromise == prom) {
+      return true;
+    } else if (this.chainedPromiseExt != null) {
+      return chainedPromiseExt.contains(prom);
+    }
+    return false;
+  }
+
   public static class STracingPromise extends SPromise implements PassiveEntityWithEvents {
 
     protected STracingPromise(final Actor owner, final boolean haltOnResolver,
@@ -377,8 +452,14 @@ public class SPromise extends SObjectWithClass {
       version = 0;
     }
 
-    protected int  version;
-    protected long resolvingActor;
+    protected int version;
+
+    /**
+     * This field is reused in Chained Promises to store the version number of the chaining
+     * event. Needed for lost chaining to establish the correct order of chained Promises.
+     */
+    private long      resolvingActor = -1;
+    protected boolean canBeLost      = true;
 
     @Override
     public int getNextEventNumber() {
@@ -386,9 +467,16 @@ public class SPromise extends SObjectWithClass {
     }
 
     public long getResolvingActor() {
-      assert VmSettings.RECEIVER_SIDE_TRACING || VmSettings.RECEIVER_SIDE_REPLAY;
-      assert isCompleted();
+      assert VmSettings.TRACK_PROMISE_RESOLVER;
       return resolvingActor;
+    }
+
+    public void setResolvingActorForSnapshot(final long l) {
+      this.resolvingActor = l;
+    }
+
+    public boolean canBeLost() {
+      return canBeLost;
     }
   }
 
@@ -407,6 +495,7 @@ public class SPromise extends SObjectWithClass {
     boolean                                           untrackedResolution = false;
     LinkedList<ReplayRecord>                          eventsForDelayedResolution;
     boolean                                           handled             = false;
+    boolean                                           unresolved          = false;
 
     protected SReplayPromise(final Actor owner, final boolean haltOnResolver,
         final boolean haltOnResolution) {
@@ -422,6 +511,7 @@ public class SPromise extends SObjectWithClass {
 
       Activity current = TracingActivityThread.currentThread().getActivity();
       if (untrackedResolution) {
+        Output.println("untracked");
         assert this.onResolvedReplay == null;
         assert this.onErrorReplay == null;
         assert this.replayChainedPromises == null;
@@ -433,10 +523,27 @@ public class SPromise extends SObjectWithClass {
       ReplayRecord npr = current.peekNextReplayEvent();
       assert npr != null;
       assert npr.type == TraceRecord.PROMISE_RESOLUTION : "was " + npr.type + " in "
-          + current.getId() + " for " + this.hashCode();
+          + current.getId() + " for " + this.hashCode() + "   " + npr.eventNo;
+
+      this.resolver = resolver;
+      assert resolver != null;
+
+      // Output.println("resolving " + System.identityHashCode(this) + this + " at " +
+      // npr.eventNo
+      // + " " + this.version + " in "
+      // + current.getId());
 
       if (npr.eventNo != this.version) {
+        assert npr.eventNo > this.version : "" + this.whenResolved + this.chainedPromise
+            + this.onError + this.delayedMessages + this.onResolvedReplay + this.onErrorReplay
+            + this.replayChainedPromises;
         // delay resolution
+        // Output.println(
+        // "delayed resolution of " + System.identityHashCode(this) + " " + npr.eventNo + " "
+        // + this.version + "\n" + this.whenResolved + this.chainedPromise
+        // + this.onError + this.delayedMessages + this.onResolvedReplay
+        // + this.onErrorReplay
+        // + this.replayChainedPromises);
         this.delayed = true;
         this.resolutionversion = npr.eventNo;
         this.haltOnResolution = haltOnResolution;
@@ -463,6 +570,7 @@ public class SPromise extends SObjectWithClass {
       }
 
       if (todo != null) {
+        // Output.println("SENDING " + todo.size() + " MESSAGES");
         while (!todo.isEmpty()) {
           PromiseMessage pm = todo.poll();
           pm.resolve(this.value, owner, (Actor) current);
@@ -471,6 +579,8 @@ public class SPromise extends SObjectWithClass {
           assert npr.type == TraceRecord.MESSAGE : "was " + npr.type + " in "
               + current.getId();
           pm.setReplayVersion(npr.eventNo);
+          // Output.println("SENDING " + pm + " " + pm.getMessageId() + " "
+          // + System.identityHashCode(pm.getPromise()));
 
           if (type == Resolution.SUCCESSFUL) {
             this.registerWhenResolvedUnsynced(pm);
@@ -487,7 +597,16 @@ public class SPromise extends SObjectWithClass {
       npr = current.getNextReplayEvent();
       assert npr != null;
       assert npr.type == TraceRecord.PROMISE_RESOLUTION_END : "was " + npr.type + " in "
-          + current.getId() + " for " + this.hashCode();
+          + current.getId() + " for " + this.hashCode() + "   " + npr.eventNo + "   " + this
+          + this.version;
+    }
+
+    public void setPriority(final long priority) {
+      this.priority = priority;
+    }
+
+    public boolean isUnresolved() {
+      return unresolved;
     }
 
     /**
@@ -501,6 +620,7 @@ public class SPromise extends SObjectWithClass {
       eventsForDelayedResolution = new LinkedList<ReplayRecord>();
       Activity current = TracingActivityThread.currentThread().getActivity();
       ReplayRecord npr;
+      // Output.println("CONSUMING in " + current.getId());
 
       int open = 0;
 
@@ -537,9 +657,11 @@ public class SPromise extends SObjectWithClass {
     @TruffleBoundary
     private void tryPerformDelayedResolution() {
       if (delayed && resolutionversion == version) {
+        Output.println("delayed resolution");
         Activity current = TracingActivityThread.currentThread().getActivity();
         // restore events needed for resolution
 
+        Output.println("resolving delayed");
         assert this.eventsForDelayedResolution != null;
         assert this.eventsForDelayedResolution.size() >= 2 : ""
             + this.eventsForDelayedResolution.size();
@@ -596,6 +718,7 @@ public class SPromise extends SObjectWithClass {
         delayedMessages = new HashMap<>();
       }
 
+      Output.println("##################### DOING THE WEIRD THING #######################");
       delayedMessages.put(msg, events);
     }
 
@@ -613,7 +736,7 @@ public class SPromise extends SObjectWithClass {
       }
     }
 
-    public void registerOnErrorReplay(final PromiseMessage msg) {
+    public void registerOnErrorSnapshot(final PromiseMessage msg, final boolean increment) {
       if (this.onErrorReplay == null) {
         this.onErrorReplay = new PriorityQueue<>(new Comparator<PromiseMessage>() {
           @Override
@@ -624,16 +747,17 @@ public class SPromise extends SObjectWithClass {
       }
 
       this.onErrorReplay.add(msg);
-      this.version++;
-
-      tryPerformDelayedResolution();
+      if (increment) {
+        this.version++;
+        tryPerformDelayedResolution();
+      }
     }
 
     /**
      * Stores Message Objects in a priority Queue, to bring the messages in the original order.
      * Use resolveReplay method before resolving promise.
      */
-    public void registerOnResolvedReplay(final PromiseMessage msg) {
+    public void registerOnResolvedSnapshot(final PromiseMessage msg, final boolean increment) {
       if (this.onResolvedReplay == null) {
         this.onResolvedReplay = new PriorityQueue<>(new Comparator<PromiseMessage>() {
           @Override
@@ -643,16 +767,21 @@ public class SPromise extends SObjectWithClass {
         });
       }
 
-      this.onResolvedReplay.add(msg);
-      this.version++;
+      // Output.println("Whenresolved " + increment + " " + msg + " on " + this + " "
+      // + System.identityHashCode(this));
 
-      tryPerformDelayedResolution();
+      this.onResolvedReplay.add(msg);
+      if (increment) {
+        this.version++;
+        tryPerformDelayedResolution();
+      }
     }
 
     public void registerChainedPromiseReplay(final SReplayPromise prom) {
       ReplayRecord npr = TracingActivityThread.currentThread().getActivity()
                                               .getNextReplayEvent();
       assert npr.type == TraceRecord.PROMISE_CHAINED;
+      assert prom.priority == 0;
       prom.priority = npr.eventNo;
 
       if (this.replayChainedPromises == null) {
@@ -664,19 +793,65 @@ public class SPromise extends SObjectWithClass {
         });
       }
 
+      // Output.println("CHAINING " + System.identityHashCode(prom) + prom + " to "
+      // + System.identityHashCode(this) + this + " by "
+      // + EventualMessage.getActorCurrentMessageIsExecutionOn().getId() + " with "
+      // + prom.priority);
+
+      // Output.println("" + replayChainedPromises.peek());
+      // Output.println("" + prom);
+
+      // (new Throwable()).printStackTrace();
+
+      assert !this.replayChainedPromises.contains(prom);
+
       this.replayChainedPromises.add(prom);
       this.version++;
 
       tryPerformDelayedResolution();
     }
 
+    public void registerChainedPromiseSnapshot(final SReplayPromise prom,
+        final boolean increment) {
+
+      if (this.replayChainedPromises == null) {
+        this.replayChainedPromises = new PriorityQueue<>(new Comparator<SReplayPromise>() {
+          @Override
+          public int compare(final SReplayPromise o1, final SReplayPromise o2) {
+            return Long.compare(o1.priority, o2.priority);
+          };
+        });
+      }
+
+      // Output.println("CHAINING B " + System.identityHashCode(prom) + " to "
+      // + System.identityHashCode(this) + " by "
+      // + " with "
+      // + prom.priority + increment);
+
+      assert !this.replayChainedPromises.contains(prom);
+      assert prom.priority > -1;
+      this.replayChainedPromises.add(prom);
+      if (increment) {
+        this.version++;
+        tryPerformDelayedResolution();
+      }
+    }
+
     private void resolveChainedPromisesReplay(final Resolution type,
         final ValueProfile whenResolvedProfile) {
 
+      long prio = -1;
+
       if (replayChainedPromises != null) {
+        // Output.println("Resolving Chained Promises: " + replayChainedPromises.size());
         while (!replayChainedPromises.isEmpty()) {
           SReplayPromise rp = replayChainedPromises.remove();
+          assert resolver != null;
           Object wrapped = WrapReferenceNode.wrapForUse(rp.owner, value, resolver, null);
+          // Output.println("Priority " + rp.priority + " : " + rp);
+
+          assert rp.priority > prio : prio + "   " + rp.priority;
+          prio = rp.priority;
 
           SResolver.resolveAndTriggerListenersUnsynced(type, value, wrapped, rp, resolver,
               SomLanguage.getCurrent().getVM().getActorPool(), haltOnResolution,
@@ -749,8 +924,9 @@ public class SPromise extends SObjectWithClass {
       resolverClass = cls;
 
       if (VmSettings.SNAPSHOTS_ENABLED) {
-        ClassFactory group = resolverClass.getInstanceFactory();
-        group.getSerializer().replace(ResolverSerializationNodeFactory.create(group));
+        resolverClass.customizeSerializerFactory(
+            ResolverSerializationNodeFactory.getInstance(),
+            ResolverSerializationNodeFactory.create());
       }
     }
 
@@ -783,6 +959,21 @@ public class SPromise extends SObjectWithClass {
       if (promise.chainedPromise != null) {
         SPromise chainedPromise = promise.chainedPromise;
         promise.chainedPromise = null;
+
+        if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.REPLAY) {
+          TracingActivityThread tat =
+              TracingActivityThread.currentThread();
+          EventualMessage cm = EventualMessage.getCurrentExecutingMessage();
+          // if (cm.getSnapshotLocation() == -1
+          // || cm.getSnapshotVersion() != tat.getSnapshotId()) {
+          if (promise.getSnapshotLocation() == -1
+              || promise.getSnapshotVersion() != tat.getSnapshotId()) {
+            SnapshotBackend.registerLostChain((STracingPromise) chainedPromise,
+                (STracingPromise) promise);
+          }
+          // }
+        }
+
         Object wrapped =
             WrapReferenceNode.wrapForUse(chainedPromise.owner, result, current, null);
         resolveAndTriggerListenersUnsynced(type, result, wrapped,
@@ -806,6 +997,22 @@ public class SPromise extends SObjectWithClass {
         ArrayList<SPromise> chainedPromiseExt = promise.chainedPromiseExt;
         promise.chainedPromiseExt = null;
 
+        if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.REPLAY) {
+          TracingActivityThread tat =
+              TracingActivityThread.currentThread();
+          EventualMessage cm = EventualMessage.getCurrentExecutingMessage();
+          // if (cm.getSnapshotLocation() == -1
+          // || cm.getSnapshotVersion() != tat.getSnapshotId()) {
+          if (promise.getSnapshotLocation() == -1
+              || promise.getSnapshotVersion() != tat.getSnapshotId()) {
+            for (SPromise p : chainedPromiseExt) {
+              SnapshotBackend.registerLostChain((STracingPromise) p,
+                  (STracingPromise) promise);
+            }
+          }
+          // }
+        }
+
         for (SPromise p : chainedPromiseExt) {
           Object wrapped = WrapReferenceNode.wrapForUse(p.owner, result, current, null);
           resolveAndTriggerListenersUnsynced(type, result, wrapped, p, current,
@@ -826,7 +1033,8 @@ public class SPromise extends SObjectWithClass {
         final RecordOneEvent tracePromiseResolutionEnd2) {
       assert !(result instanceof SPromise);
 
-      if (VmSettings.RECEIVER_SIDE_TRACING || VmSettings.RECEIVER_SIDE_REPLAY) {
+      // if (VmSettings.USE_TRACING_ACTORS || VmSettings.REPLAY) {
+      if (VmSettings.TRACK_PROMISE_RESOLVER) {
         ((STracingPromise) p).resolvingActor =
             ((TracingActor) EventualMessage.getActorCurrentMessageIsExecutionOn()).getId();
       } else if (VmSettings.KOMPOS_TRACING) {
@@ -859,10 +1067,10 @@ public class SPromise extends SObjectWithClass {
             ((SReplayPromise) p).handleReplayResolution(haltOnResolution, current, type,
                 whenResolvedProfile);
           }
-        }
 
-        if (VmSettings.SENDER_SIDE_TRACING) {
-          tracePromiseResolution2.record(((STracingPromise) p).version);
+          if (VmSettings.SENDER_SIDE_TRACING) {
+            tracePromiseResolution2.record(((STracingPromise) p).version);
+          }
         }
 
         if (type == Resolution.SUCCESSFUL) {
@@ -896,6 +1104,32 @@ public class SPromise extends SObjectWithClass {
         if (VmSettings.DYNAMIC_METRICS) {
           int count = whenResolvedExt == null ? 0 : whenResolvedExt.size();
           numScheduledWhenResolved.addAndGet(1 + count);
+        }
+
+        if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.REPLAY) {
+          TracingActivityThread tat =
+              TracingActivityThread.currentThread();
+          if (promise.getSnapshotLocation() == -1
+              || promise.getSnapshotVersion() != tat.getSnapshotId()) {
+
+            SnapshotBackend.registerLostMessage(whenResolved, promise);
+
+            if (whenResolvedExt != null) {
+              for (PromiseMessage pm : whenResolvedExt) {
+                SnapshotBackend.registerLostMessage(pm, promise);
+              }
+            }
+
+            if (promise.onError != null) {
+              SnapshotBackend.registerLostErrorMessage(promise.onError, promise);
+
+              if (promise.onErrorExt != null) {
+                for (PromiseMessage pm : promise.onErrorExt) {
+                  SnapshotBackend.registerLostErrorMessage(pm, promise);
+                }
+              }
+            }
+          }
         }
 
         promise.scheduleCallbacksOnResolution(result,
@@ -939,9 +1173,72 @@ public class SPromise extends SObjectWithClass {
           numScheduledOnError.addAndGet(1 + onErrorExt.size());
         }
 
+        if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.REPLAY) {
+          TracingActivityThread tat =
+              TracingActivityThread.currentThread();
+          if (promise.getSnapshotLocation() == -1
+              || promise.getSnapshotVersion() != tat.getSnapshotId()) {
+
+            SnapshotBackend.registerLostErrorMessage(onError, promise);
+
+            if (onErrorExt != null) {
+              for (PromiseMessage pm : onErrorExt) {
+                SnapshotBackend.registerLostErrorMessage(pm, promise);
+              }
+            }
+
+            if (promise.whenResolved != null) {
+              SnapshotBackend.registerLostMessage(promise.whenResolved, promise);
+
+              if (promise.whenResolvedExt != null) {
+                for (PromiseMessage pm : promise.whenResolvedExt) {
+                  SnapshotBackend.registerLostMessage(pm, promise);
+                }
+              }
+            }
+          }
+        }
+
         promise.scheduleCallbacksOnResolution(result, onError, current, actorPool,
             haltOnResolution);
         scheduleExtensions(promise, onErrorExt, result, current, actorPool, haltOnResolution);
+      }
+    }
+
+    /**
+     * Schedule all whenResolved callbacks for the promise.
+     */
+    protected static void scheduleAllWhenResolvedSnapshot(final SPromise promise,
+        final Object result, final Actor current) {
+      if (promise.whenResolved != null) {
+        promise.scheduleCallbacksSnapshot(result, promise.whenResolved, current);
+        scheduleExtensionsSnapshot(promise, promise.whenResolvedExt, result, current);
+      }
+    }
+
+    /**
+     * Schedule callbacks from the whenResolvedExt extension array.
+     */
+    @TruffleBoundary
+    private static void scheduleExtensionsSnapshot(final SPromise promise,
+        final ArrayList<PromiseMessage> extension,
+        final Object result, final Actor current) {
+      if (extension != null) {
+        for (int i = 0; i < extension.size(); i++) {
+          PromiseMessage callbackOrMsg = extension.get(i);
+          promise.scheduleCallbacksSnapshot(result, callbackOrMsg, current);
+        }
+      }
+    }
+
+    /**
+     * Schedule all onError callbacks for the promise.
+     */
+    protected static void scheduleAllOnErrorSnapshot(final SPromise promise,
+        final Object result, final Actor current) {
+      if (promise.onError != null) {
+        promise.scheduleCallbacksSnapshot(result, promise.onError, current);
+        scheduleExtensionsSnapshot(promise, promise.onErrorExt, result, current);
       }
     }
   }

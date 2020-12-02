@@ -2,38 +2,64 @@ package tools.concurrency;
 
 import java.util.Comparator;
 import java.util.Iterator;
+import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Queue;
-import java.util.WeakHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ForkJoinPool;
 import java.util.function.BiConsumer;
 
 import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 
 import som.VM;
+import som.interpreter.Types;
 import som.interpreter.actors.Actor;
 import som.interpreter.actors.EventualMessage;
 import som.interpreter.actors.EventualMessage.PromiseMessage;
+import som.primitives.ObjectPrims.ClassPrim;
 import som.interpreter.actors.SPromise.STracingPromise;
 import som.vm.VmSettings;
+import som.vmobjects.SAbstractObject;
+import som.vmobjects.SClass;
 import tools.debugger.WebDebugger;
 import tools.replay.PassiveEntityWithEvents;
 import tools.replay.ReplayRecord;
 import tools.replay.TraceParser;
 import tools.replay.TraceRecord;
-import tools.snapshot.SnapshotRecord;
+import tools.replay.nodes.TraceContextNode;
+import tools.snapshot.DeferredFarRefSerialization;
+import tools.snapshot.SnapshotBackend;
+import tools.snapshot.SnapshotBuffer;
+import tools.snapshot.SnapshotHeap;
 import tools.snapshot.deserialization.DeserializationBuffer;
+import tools.snapshot.deserialization.SnapshotParser;
+import tools.snapshot.nodes.AbstractSerializationNode;
 
 
 public class TracingActors {
   public static class TracingActor extends Actor {
-    protected final long     activityId;
-    protected int            nextDataID;
-    protected SnapshotRecord snapshotRecord;
-    private int              traceBufferId;
-    protected int            version;
+    protected final long activityId;
+    protected int        nextDataID;
+    private int          traceBufferId;
+    protected int        version;
+    protected boolean    reportDeferredDone;
+    public byte          snapshotPhase;
+    public int           msgCnt;
+
+    /**
+     * This list is used to keep track of references to unserialized objects in the actor
+     * owning
+     * this buffer.
+     * It serves both the purpose of being a todo-list and remembering to fix these references
+     * after they were serialized. The idea is that the owner regularly checks the queue, and
+     * for
+     * each element serializes the object if necessary. The offset of the object within this
+     * SnapshotBuffer is then known and used to fix the reference (writing a long in another
+     * buffer at a specified location).
+     */
+    private ConcurrentLinkedQueue<DeferredFarRefSerialization> externalReferences;
 
     /**
      * Flag that indicates if a step-to-next-turn action has been made in the previous message.
@@ -46,18 +72,22 @@ public class TracingActors {
       this.version = 0;
       assert this.activityId >= 0;
       if (VmSettings.SNAPSHOTS_ENABLED) {
-        snapshotRecord = new SnapshotRecord();
+        this.externalReferences = new ConcurrentLinkedQueue<>();
+        this.snapshotPhase = SnapshotBackend.getSnapshotVersion();
       }
     }
 
     protected TracingActor(final VM vm, final long id) {
       super(vm);
       this.activityId = id;
+      if (VmSettings.SNAPSHOTS_ENABLED) {
+        this.snapshotPhase = SnapshotBackend.getSnapshotVersion();
+      }
     }
 
-    public final int getActorId() {
-      // TODO: remove after rebasing snapshot PR
-      throw new UnsupportedOperationException("Please remove this call and use getId instead");
+    @Override
+    public String toString() {
+      return super.toString() + " #" + activityId;
     }
 
     @Override
@@ -65,10 +95,20 @@ public class TracingActors {
     public synchronized void send(final EventualMessage msg,
         final ForkJoinPool actorPool) {
       super.send(msg, actorPool);
+      if (VmSettings.REPLAY) {
+        assert msg.getMessageId() >= this.version;
+      }
       if (VmSettings.SENDER_SIDE_TRACING) {
         msg.getTracingNode().record(this.version);
-        this.version++;
         // TODO maybe try to get the recording itself done outside the synchronized method
+
+        if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.REPLAY) {
+          msg.setIdSnapshot(this.version);
+        }
+
+        if (!VmSettings.REPLAY) {
+          this.version++;
+        }
       }
 
     }
@@ -98,20 +138,24 @@ public class TracingActors {
       return nextDataID++;
     }
 
+    public synchronized int peekDataId() {
+      return nextDataID;
+    }
+
+    public TraceContextNode getActorContextNode() {
+      return this.executor.getActorContextNode();
+    }
+
     public boolean isStepToNextTurn() {
       return stepToNextTurn;
     }
 
-    public SnapshotRecord getSnapshotRecord() {
-      assert VmSettings.SNAPSHOTS_ENABLED;
-      return snapshotRecord;
+    public void setReportDeferredDone(final boolean val) {
+      this.reportDeferredDone = val;
     }
 
-    /**
-     * For testing purposes.
-     */
-    public void replaceSnapshotRecord() {
-      this.snapshotRecord = new SnapshotRecord();
+    public boolean isReportDeferredDone() {
+      return reportDeferredDone;
     }
 
     @Override
@@ -134,6 +178,85 @@ public class TracingActors {
       }
     }
 
+    @TruffleBoundary // TODO: convert to an approach that constructs a cache
+    public void handleObjectsReferencedFromFarRefs(final SnapshotHeap buffer,
+        final ClassPrim classPrim) {
+
+      while (!externalReferences.isEmpty()) {
+        DeferredFarRefSerialization frt = externalReferences.poll();
+        assert frt != null;
+
+        // ignore todos from a different snapshot
+        if (frt.isCurrent()) {
+          SClass clazz = classPrim.executeEvaluated(frt.target);
+          long location;
+          if (frt.target instanceof PromiseMessage) {
+            location = ((PromiseMessage) frt.target).forceSerialize(buffer);
+          } else {
+            location = clazz.serialize(frt.target, buffer);
+          }
+
+          frt.resolve(location);
+        }
+      }
+    }
+
+    public int getnumdeferred() {
+      return this.externalReferences.size();
+    }
+
+    /**
+     * This method handles all the details of what to do when we want to serialize objects from
+     * another actor.
+     * Intended for use in FarReference serialization.
+     *
+     * @param o object far-referenced from {@code other}}
+     * @param other {SnapshotBuffer that contains the farReference}
+     * @param destination offset of the reference inside {@code other}
+     */
+    public void farReference(final SAbstractObject o, final SnapshotBuffer other,
+        final int destination) {
+
+      Long l = o.getSOMClass().getObjectLocation(o, other.getHeap().snapshotVersion);
+
+      if (other != null && l != -1) {
+        other.putLongAt(destination, l);
+      } else if (l == -1) {
+        if (externalReferences.isEmpty()) {
+          SnapshotBackend.deferSerialization(this);
+        }
+        externalReferences.offer(new DeferredFarRefSerialization(other, destination, o));
+      }
+    }
+
+    public void farReferenceNoFillIn(final SAbstractObject o, final int version) {
+
+      Long l = o.getSOMClass().getObjectLocation(o, version);
+
+      if (l == -1) {
+        if (externalReferences.isEmpty()) {
+          SnapshotBackend.deferSerialization(this);
+        }
+        externalReferences.offer(new DeferredFarRefSerialization(null, 0, o));
+      }
+    }
+
+    public void farReferenceMessage(final PromiseMessage pm, final SnapshotBuffer other,
+        final int destination) {
+
+      Long l =
+          AbstractSerializationNode.getObjectLocation(pm, other.getHeap().snapshotVersion);
+
+      if (l != -1) {
+        other.putLongAt(destination, l);
+      } else {
+        if (externalReferences.isEmpty()) {
+          SnapshotBackend.deferSerialization(this);
+        }
+        externalReferences.offer(new DeferredFarRefSerialization(other, destination, pm));
+      }
+    }
+
     /**
      * To be Overrriden by ReplayActor.
      *
@@ -141,6 +264,26 @@ public class TracingActors {
      */
     public DeserializationBuffer getDeserializationBuffer() {
       return null;
+    }
+
+    public void handleObjectsReferencedFromFarRefs(final SnapshotHeap sb) {
+      while (!externalReferences.isEmpty()) {
+        DeferredFarRefSerialization frt = externalReferences.poll();
+        assert frt != null;
+
+        // ignore todos from a different snapshot
+
+        if (frt.isCurrent()) {
+          SClass clazz = Types.getClassOf(frt.target);
+          long location;
+          if (frt.target instanceof PromiseMessage) {
+            location = ((PromiseMessage) frt.target).forceSerialize(sb);
+          } else {
+            location = clazz.serialize(frt.target, sb);
+          }
+          frt.resolve(location);
+        }
+      }
     }
   }
 
@@ -167,7 +310,7 @@ public class TracingActors {
 
     static {
       if (VmSettings.REPLAY) {
-        actorList = new WeakHashMap<>();
+        actorList = new HashMap<>();
       }
     }
 
@@ -181,11 +324,8 @@ public class TracingActors {
       return dataSource;
     }
 
-    public void setDataSource(final BiConsumer<Short, Integer> ds) {
-      if (dataSource != null) {
-        throw new UnsupportedOperationException("Allready has a datasource!");
-      }
-      dataSource = ds;
+    public boolean hasDataSource() {
+      return dataSource != null;
     }
 
     @Override
@@ -209,6 +349,26 @@ public class TracingActors {
             assert !actorList.containsKey(activityId);
             actorList.put(activityId, this);
           }
+          this.version = (int) SnapshotParser.getVersionForActor(activityId);
+        }
+        traceParser = vm.getTraceParser();
+      } else {
+        replayEvents = null;
+        traceParser = null;
+      }
+    }
+
+    public ReplayActor(final VM vm, final long resolver) {
+      super(vm, resolver);
+      if (VmSettings.REPLAY) {
+        replayEvents = vm.getTraceParser().getReplayEventsForEntity(activityId);
+
+        if (VmSettings.SNAPSHOTS_ENABLED) {
+          synchronized (actorList) {
+            assert !actorList.containsKey(activityId);
+            actorList.put(activityId, this);
+          }
+          this.version = (int) SnapshotParser.getVersionForActor(activityId);
         }
         traceParser = vm.getTraceParser();
       } else {
@@ -226,11 +386,21 @@ public class TracingActors {
       }
     }
 
+    public void setInitialMainActorVersion(final int version) {
+      assert this.activityId == 0;
+      this.version = version;
+    }
+
     @Override
     @TruffleBoundary
     public synchronized void send(final EventualMessage msg,
         final ForkJoinPool actorPool) {
       assert msg.getTarget() == this;
+
+      // Output.println(
+      // "Message " + msg + " with " + msg.getMessageId() + "sent to actor " + activityId);
+
+      assert msg.getMessageId() >= this.version : this.version + " " + msg.getMessageId();
 
       if (!VmSettings.REPLAY) {
         super.send(msg, actorPool);
@@ -252,6 +422,12 @@ public class TracingActors {
       if ((!this.isExecuting) && this.replayCanProcess(msg) && !this.poisoned) {
         isExecuting = true;
         execute(actorPool);
+      }
+    }
+
+    public static void scheduleAllActors(final ForkJoinPool actorPool) {
+      for (ReplayActor ra : actorList.values()) {
+        ra.executeIfNecessarry(actorPool);
       }
     }
 
@@ -348,6 +524,10 @@ public class TracingActors {
           EventualMessage msg = orderedMessages.poll();
           toProcess.add(msg);
           a.version++;
+        }
+
+        if (!orderedMessages.isEmpty()) {
+          assert a.version < orderedMessages.peek().getMessageId();
         }
 
         assert toProcess.size()

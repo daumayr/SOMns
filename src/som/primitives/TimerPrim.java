@@ -7,7 +7,6 @@ import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.BiConsumer;
 
 import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
 import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
@@ -30,6 +29,7 @@ import som.vmobjects.SBlock;
 import som.vmobjects.SInvokable;
 import som.vmobjects.SSymbol;
 import tools.concurrency.TracingActors.ReplayActor;
+import tools.replay.ExternalDataSource;
 import tools.replay.TraceParser;
 import tools.replay.actors.UniformExecutionTrace;
 import tools.replay.actors.ExternalEventualMessage.ExternalDirectMessage;
@@ -66,7 +66,6 @@ public abstract class TimerPrim extends BinarySystemOperation {
         VALUE_SELECTOR, s.getSourceSection(), vm.getLanguage());
 
     if (VmSettings.REPLAY) {
-      ((ReplayActor) vm.getMainActor()).setDataSource(new TimeDataSource());
       todoList = new ArrayList<>();
       replayTargetMap = new HashMap<>();
       traceParser = vm.getTraceParser();
@@ -124,9 +123,10 @@ public abstract class TimerPrim extends BinarySystemOperation {
     }
   }
 
-  private static final class TimeDataSource implements BiConsumer<Short, Integer> {
+  private static final class TimeDataSource implements ExternalDataSource {
     @Override
-    public void accept(final Short method, final Integer dataId) {
+    public void requestExternalMessage(final short method, final int dataId,
+        final ReplayActor receiver) {
       assert VmSettings.REPLAY;
       synchronized (REPLAY_LOCK) {
         SFarReference target = replayTargetMap.remove(dataId);

@@ -17,6 +17,7 @@ import bd.tools.nodes.Operation;
 import som.Output;
 import som.VM;
 import som.interpreter.Types;
+import som.interpreter.actors.EventualMessage;
 import som.interpreter.actors.SFarReference;
 import som.interpreter.actors.SPromise;
 import som.interpreter.actors.SPromise.SResolver;
@@ -25,14 +26,17 @@ import som.interpreter.nodes.nary.UnaryExpressionNode;
 import som.interpreter.processes.SChannel.SChannelInput;
 import som.interpreter.processes.SChannel.SChannelOutput;
 import som.primitives.ObjectPrimsFactory.IsValueFactory;
+import som.vm.constants.Classes;
 import som.vm.constants.Nil;
 import som.vmobjects.SAbstractObject;
+import som.vmobjects.SArray;
 import som.vmobjects.SArray.SImmutableArray;
 import som.vmobjects.SArray.SMutableArray;
 import som.vmobjects.SBlock;
 import som.vmobjects.SClass;
 import som.vmobjects.SObject.SImmutableObject;
 import som.vmobjects.SObject.SMutableObject;
+import som.vmobjects.SObjectWithClass;
 import som.vmobjects.SObjectWithClass.SObjectWithoutFields;
 import som.vmobjects.SSymbol;
 import tools.dym.Tags.OpComparison;
@@ -72,6 +76,38 @@ public final class ObjectPrims {
   @GenerateNodeFactory
   @Primitive(primitive = "objClass:")
   public abstract static class ClassPrim extends UnaryExpressionNode {
+    public abstract SClass executeEvaluated(Object receiver);
+
+    @Specialization
+    public final SClass doArray(final SArray rcvr) {
+      return rcvr.getSOMClass();
+    }
+
+    @Specialization
+    public final SClass doBlock(final SBlock rcvr) {
+      return Classes.blockClass;
+    }
+
+    @Specialization
+    public final SClass doSymbol(final SSymbol rcvr) {
+      return Classes.symbolClass;
+    }
+
+    @Specialization
+    public final SClass doObjectWithClass(final SObjectWithClass rcvr) {
+      return rcvr.getSOMClass();
+    }
+
+    @Specialization
+    public final SClass doFarRef(final SFarReference rcvr) {
+      return rcvr.getSOMClass();
+    }
+
+    @Specialization
+    public final SClass doMessage(final EventualMessage rcvr) {
+      return Classes.messageClass;
+    }
+
     @Specialization
     public final SClass doSAbstractObject(final SAbstractObject receiver) {
       return receiver.getSOMClass();

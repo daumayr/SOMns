@@ -50,6 +50,14 @@ public class VmSettings implements Settings {
 
   public static final boolean USE_PINNING;
 
+  public static final boolean SNAPSHOT_REPLAY;
+  public static final int     SNAPSHOT_INLINING_DEPTH;
+  public static final int     SNAPSHOT_REPLAY_VERSION;
+
+  public static final boolean TRACK_PROMISE_RESOLVER;
+
+  public static final int SNAPSHOT_FREQUENCY;
+
   static {
     String prop = System.getProperty("som.threads");
     if (prop == null) {
@@ -82,7 +90,13 @@ public class VmSettings implements Settings {
     TEST_SNAPSHOTS = getBool("som.snapshotTest", false);
     TEST_SERIALIZE_ALL = getBool("som.actorSnapshotAll", false);
     SNAPSHOTS_ENABLED = getBool("som.actorSnapshot", false) || TEST_SNAPSHOTS;
-    TRACK_SNAPSHOT_ENTITIES = (REPLAY && SNAPSHOTS_ENABLED) || TEST_SNAPSHOTS;
+    TRACK_SNAPSHOT_ENTITIES = (REPLAY && SNAPSHOTS_ENABLED);
+    SNAPSHOT_REPLAY_VERSION = getInteger("som.actorSnapshotResore", 1);
+    SNAPSHOT_FREQUENCY = getInteger("som.actorSnapshotFrequency", 1);
+    SNAPSHOT_REPLAY = REPLAY && SNAPSHOTS_ENABLED;
+
+    TRACK_PROMISE_RESOLVER =
+        RECEIVER_SIDE_TRACING || RECEIVER_SIDE_REPLAY || VmSettings.SNAPSHOTS_ENABLED;
 
     boolean dm = getBool("som.dynamicMetrics", false);
     DYNAMIC_METRICS = dm;
@@ -93,10 +107,13 @@ public class VmSettings implements Settings {
     ANSI_COLOR_IN_OUTPUT = getBool("som.useAnsiColoring", false);
 
     ASSISTED_DEBUGGING_BREAKPOINTS = getInteger("som.assistedDebuggingBp", -1);
+
     BUFFER_SIZE = getInteger("som.buffSize", 1024 * 1024);
     BUFFERS_PER_THREAD = getInteger("som.buffPerThread", 4);
     BUFFER_TIMEOUT = getInteger("som.buffDelay", 50);
     RECYCLE_BUFFERS = getBool("som.bufferRecycling", true);
+
+    SNAPSHOT_INLINING_DEPTH = getInteger("som.snapshotInliningDepth", 8);
 
     BASE_DIRECTORY = System.getProperty("som.baseDir", System.getProperty("user.dir"));
 

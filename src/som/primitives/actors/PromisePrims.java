@@ -131,7 +131,7 @@ public final class PromisePrims {
   @TruffleBoundary
   public static RootCallTarget createReceived(final SBlock callback) {
     RootCallTarget target = callback.getMethod().getCallTarget();
-    ReceivedCallback node = new ReceivedCallback(target);
+    ReceivedCallback node = new ReceivedCallback(target, callback.getMethod().getSignature());
     return Truffle.getRuntime().createCallTarget(node);
   }
 

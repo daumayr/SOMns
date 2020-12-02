@@ -4,42 +4,53 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
 
-import com.oracle.truffle.api.CompilerAsserts;
+import com.oracle.truffle.api.CompilerDirectives;
 import com.oracle.truffle.api.dsl.Cached;
 import com.oracle.truffle.api.dsl.GenerateNodeFactory;
 import com.oracle.truffle.api.dsl.Specialization;
 
+import som.interpreter.SomLanguage;
 import som.interpreter.actors.SFarReference;
-import som.interpreter.objectstorage.ClassFactory;
 import som.vm.constants.Classes;
 import som.vm.constants.Nil;
+import som.vmobjects.SAbstractObject;
 import som.vmobjects.SClass;
 import som.vmobjects.SInvokable;
+import som.vmobjects.SObjectWithClass;
+import som.vmobjects.SObjectWithClass.SObjectWithoutFields;
 import som.vmobjects.SSymbol;
+import tools.concurrency.TracingActors.ReplayActor;
 import tools.concurrency.TracingActors.TracingActor;
 import tools.snapshot.SnapshotBackend;
 import tools.snapshot.SnapshotBuffer;
+import tools.snapshot.SnapshotHeap;
 import tools.snapshot.deserialization.DeserializationBuffer;
 import tools.snapshot.deserialization.FixupInformation;
+import tools.snapshot.deserialization.SnapshotParser;
 
 
 public abstract class PrimitiveSerializationNodes {
+
   @GenerateNodeFactory
   public abstract static class StringSerializationNode extends AbstractSerializationNode {
 
-    public StringSerializationNode(final ClassFactory classFact) {
-      super(classFact);
-    }
-
     @Specialization
-    public void serialize(final Object o, final SnapshotBuffer sb) {
+    public long serialize(final Object o, final SnapshotHeap sh) {
       assert o instanceof String;
-      String s = (String) o;
 
+      long location = getValueLocation(o);
+      if (location != -1) {
+        return location;
+      }
+
+      String s = (String) o;
       byte[] data = s.getBytes(StandardCharsets.UTF_8);
-      int base = sb.addObject(o, classFact, data.length + 4);
-      sb.putIntAt(base, data.length);
-      sb.putBytesAt(base + 4, data);
+      SnapshotBuffer vb = getBuffer().getBufferObject(data.length + 4);
+      int start = vb.addValue(o, Classes.stringClass, data.length + 4);
+      int base = start;
+      vb.putIntAt(base, data.length);
+      vb.putBytesAt(base + 4, data);
+      return vb.calculateReferenceB(start);
     }
 
     @Override
@@ -55,16 +66,35 @@ public abstract class PrimitiveSerializationNodes {
   @GenerateNodeFactory
   public abstract static class IntegerSerializationNode extends AbstractSerializationNode {
 
-    public IntegerSerializationNode(final ClassFactory classFact) {
-      super(classFact);
+    @Specialization
+    public long serialize(final Integer o, final SnapshotHeap sh) {
+
+      long location = getValueLocation((long) o);
+      if (location != -1) {
+        return location;
+      }
+
+      long l = o;
+      SnapshotBuffer vb = getBuffer().getBufferObject(Long.BYTES);
+      int base = vb.addValue((long) o, Classes.integerClass, Long.BYTES);
+      vb.putLongAt(base, l);
+      return vb.calculateReferenceB(base);
     }
 
     @Specialization
-    public void serialize(final Object o, final SnapshotBuffer sb) {
+    public long serialize(final Long o, final SnapshotHeap sh) {
       assert o instanceof Long;
-      long l = (long) o;
-      int base = sb.addObject(o, classFact, Long.BYTES);
-      sb.putLongAt(base, l);
+
+      long location = getValueLocation(o);
+      if (location != -1) {
+        return location;
+      }
+
+      long l = o;
+      SnapshotBuffer vb = getBuffer().getBufferObject(Long.BYTES);
+      int base = vb.addValue(o, Classes.integerClass, Long.BYTES);
+      vb.putLongAt(base, l);
+      return vb.calculateReferenceB(base);
     }
 
     @Override
@@ -76,16 +106,20 @@ public abstract class PrimitiveSerializationNodes {
   @GenerateNodeFactory
   public abstract static class DoubleSerializationNode extends AbstractSerializationNode {
 
-    public DoubleSerializationNode(final ClassFactory classFact) {
-      super(classFact);
-    }
-
     @Specialization
-    public void serialize(final Object o, final SnapshotBuffer sb) {
+    public long serialize(final Double o, final SnapshotHeap sh) {
       assert o instanceof Double;
-      double d = (double) o;
-      int base = sb.addObject(o, classFact, Double.BYTES);
-      sb.putDoubleAt(base, d);
+
+      long location = getValueLocation(o);
+      if (location != -1) {
+        return location;
+      }
+
+      double d = o;
+      SnapshotBuffer vb = getBuffer().getBufferObject(Double.BYTES);
+      int base = vb.addValue(o, Classes.doubleClass, Double.BYTES);
+      vb.putDoubleAt(base, d);
+      return vb.calculateReferenceB(base);
     }
 
     @Override
@@ -97,16 +131,19 @@ public abstract class PrimitiveSerializationNodes {
   @GenerateNodeFactory
   public abstract static class BooleanSerializationNode extends AbstractSerializationNode {
 
-    public BooleanSerializationNode(final ClassFactory classFact) {
-      super(classFact);
-    }
-
     @Specialization
-    public void serialize(final Object o, final SnapshotBuffer sb) {
-      assert o instanceof Boolean;
-      boolean b = (boolean) o;
-      int base = sb.addObject(o, classFact, 1);
-      sb.putByteAt(base, (byte) (b ? 1 : 0));
+    public long serialize(final Boolean o, final SnapshotHeap sh) {
+
+      long location = getValueLocation(o);
+      if (location != -1) {
+        return location;
+      }
+
+      boolean b = o;
+      SnapshotBuffer vb = getBuffer().getBufferObject(1);
+      int base = vb.addValue(o, Classes.booleanClass, 1);
+      vb.putByteAt(base, (byte) (b ? 1 : 0));
+      return vb.calculateReferenceB(base);
     }
 
     @Override
@@ -118,15 +155,18 @@ public abstract class PrimitiveSerializationNodes {
   @GenerateNodeFactory
   public abstract static class TrueSerializationNode extends AbstractSerializationNode {
 
-    public TrueSerializationNode(final ClassFactory classFact) {
-      super(classFact);
-    }
-
     @Specialization
-    public void serialize(final Object o, final SnapshotBuffer sb) {
-      assert o instanceof Boolean;
-      assert ((boolean) o);
-      sb.addObject(o, classFact, 0);
+    public long serialize(final boolean o, final SnapshotHeap sh) {
+      assert o;
+
+      long location = getValueLocation(o);
+      if (location != -1) {
+        return location;
+      }
+
+      SnapshotBuffer vb = getBuffer().getBufferObject(0);
+      int base = vb.addValue(o, Classes.trueClass, 0);
+      return vb.calculateReferenceB(base);
     }
 
     @Override
@@ -138,15 +178,18 @@ public abstract class PrimitiveSerializationNodes {
   @GenerateNodeFactory
   public abstract static class FalseSerializationNode extends AbstractSerializationNode {
 
-    public FalseSerializationNode(final ClassFactory classFact) {
-      super(classFact);
-    }
-
     @Specialization
-    public void serialize(final Object o, final SnapshotBuffer sb) {
-      assert o instanceof Boolean;
-      assert !((boolean) o);
-      sb.addObject(o, classFact, 0);
+    public long serialize(final boolean o, final SnapshotHeap sh) {
+      assert !o;
+
+      long location = getValueLocation(o);
+      if (location != -1) {
+        return location;
+      }
+
+      SnapshotBuffer vb = getBuffer().getBufferObject(0);
+      int base = vb.addValue(o, Classes.falseClass, 0);
+      return vb.calculateReferenceB(base);
     }
 
     @Override
@@ -158,16 +201,20 @@ public abstract class PrimitiveSerializationNodes {
   @GenerateNodeFactory
   public abstract static class SymbolSerializationNode extends AbstractSerializationNode {
 
-    public SymbolSerializationNode(final ClassFactory classFact) {
-      super(classFact);
-    }
-
     @Specialization
-    public void serialize(final Object o, final SnapshotBuffer sb) {
+    public long serialize(final SSymbol o, final SnapshotHeap sh) {
       assert o instanceof SSymbol;
-      SSymbol ss = (SSymbol) o;
-      int base = sb.addObject(o, classFact, 2);
-      sb.putShortAt(base, ss.getSymbolId());
+
+      long location = getObjectValueLocation(o);
+      if (location != -1) {
+        return location;
+      }
+
+      SSymbol ss = o;
+      SnapshotBuffer vb = getBuffer().getBufferObject(2);
+      int base = vb.addValueObject(o, Classes.symbolClass, 2);
+      vb.putShortAt(base, ss.getSymbolId());
+      return vb.calculateReferenceB(base);
     }
 
     @Override
@@ -180,42 +227,92 @@ public abstract class PrimitiveSerializationNodes {
   @GenerateNodeFactory
   public abstract static class ClassSerializationNode extends AbstractSerializationNode {
 
-    public ClassSerializationNode(final ClassFactory classFact) {
-      super(classFact);
+    @Specialization(guards = "cls.isValue()")
+    protected long doValueClass(final SClass cls, final SnapshotHeap sh) {
+
+      long location = getObjectValueLocation(cls);
+      if (location != -1) {
+        return location;
+      }
+
+      SnapshotBuffer vb = getBuffer().getBufferObject(Integer.BYTES + Long.BYTES);
+      int base = vb.addValueObject(cls, Classes.classClass, Integer.BYTES + Long.BYTES);
+      vb.putIntAt(base, cls.getIdentity());
+      SObjectWithClass outer = cls.getEnclosingObject();
+      assert outer.isValue();
+
+      long out = outer.getSOMClass().serialize(outer, sh);
+      vb.putLongAt(base + Integer.BYTES, out);
+
+      location = vb.calculateReferenceB(base);
+      SnapshotBackend.registerValueClassLocation(cls.getIdentity(), location);
+      return location;
     }
 
-    protected short getSymbolId(final SClass clazz) {
-      return clazz.getMixinDefinition().getIdentifier().getSymbolId();
+    protected TracingActor getMain() {
+      CompilerDirectives.transferToInterpreter();
+      return (TracingActor) SomLanguage.getCurrent().getVM().getMainActor();
     }
 
-    @Specialization
-    protected void doCached(final SClass cls, final SnapshotBuffer sb,
-        @Cached("getSymbolId(cls)") final short cachedId) {
-      CompilerAsserts.compilationConstant(cachedId);
-      int base = sb.addObject(cls, Classes.classClass.getFactory(), 2);
-      sb.putShortAt(base, cachedId);
+    @Specialization(guards = "!cls.isValue()")
+    protected long doNotValueClass(final SClass cls, final SnapshotHeap sh,
+        @Cached("getMain()") final TracingActor main) {
+
+      long location = getObjectLocation(cls, sh.getSnapshotVersion());
+      if (location != -1) {
+        return location;
+      }
+
+      SnapshotBuffer sb = sh.getBufferObject(Integer.BYTES + Long.BYTES);
+
+      int base = sb.addObject(cls, Classes.classClass, Integer.BYTES + Long.BYTES);
+      sb.putIntAt(base, cls.getIdentity());
+
+      SObjectWithClass outer = cls.getEnclosingObject();
+      assert outer != null;
+      TracingActor owner = cls.getOwnerOfOuter();
+      if (owner == sh.getOwner().getCurrentActor()) {
+        sb.putLongAt(base + Integer.BYTES, outer.getSOMClass().serialize(outer, sh));
+      } else {
+        if (owner == null) {
+          owner = main;
+        }
+        owner.farReference(outer, sb, base + Integer.BYTES);
+      }
+      location = sb.calculateReferenceB(base);
+      SnapshotBackend.registerClassLocation(cls.getIdentity(), location);
+      return location;
     }
 
     @Override
     public Object deserialize(final DeserializationBuffer sb) {
-      short id = sb.getShort();
-      return SnapshotBackend.lookupClass(id);
+      int id = sb.getInt();
+      // SObjectWithClass outer = (SObjectWithClass) sb.getReference();
+      return SnapshotBackend.lookupClass(id, sb.position() - Integer.BYTES - Integer.BYTES);
+    }
+
+    public static long readOuterLocation(final DeserializationBuffer sb) {
+      sb.getInt();
+      return sb.getLong();
     }
   }
 
   @GenerateNodeFactory
   public abstract static class SInvokableSerializationNode extends AbstractSerializationNode {
 
-    public SInvokableSerializationNode(final ClassFactory classFact) {
-      super(classFact);
-    }
-
     @Specialization
-    public void serialize(final Object o, final SnapshotBuffer sb) {
-      assert o instanceof SInvokable;
-      SInvokable si = (SInvokable) o;
-      int base = sb.addObject(si, classFact, Short.BYTES);
-      sb.putShortAt(base, si.getIdentifier().getSymbolId());
+    public long serialize(final SInvokable o, final SnapshotHeap sh) {
+
+      long location = getObjectValueLocation(o);
+      if (location != -1) {
+        return location;
+      }
+
+      SInvokable si = o;
+      SnapshotBuffer vb = getBuffer().getBufferObject(Short.BYTES);
+      int base = vb.addValueObject(si, Classes.methodClass, Short.BYTES);
+      vb.putShortAt(base, si.getIdentifier().getSymbolId());
+      return vb.calculateReferenceB(base);
     }
 
     @Override
@@ -229,13 +326,17 @@ public abstract class PrimitiveSerializationNodes {
   @GenerateNodeFactory
   public abstract static class NilSerializationNode extends AbstractSerializationNode {
 
-    public NilSerializationNode(final ClassFactory classFact) {
-      super(classFact);
-    }
-
     @Specialization
-    public void serialize(final Object o, final SnapshotBuffer sb) {
-      sb.addObject(o, classFact, 0);
+    public long serialize(final SObjectWithoutFields o, final SnapshotHeap sh) {
+
+      long location = getObjectValueLocation(o);
+      if (location != -1) {
+        return location;
+      }
+
+      SnapshotBuffer vb = getBuffer().getBufferObject(0);
+      long base = vb.addValueObject(o, Classes.nilClass, 0);
+      return vb.calculateReferenceB(base);
     }
 
     @Override
@@ -247,32 +348,44 @@ public abstract class PrimitiveSerializationNodes {
   @GenerateNodeFactory
   public abstract static class FarRefSerializationNode extends AbstractSerializationNode {
 
-    public FarRefSerializationNode(final ClassFactory classFact) {
-      super(classFact);
-    }
-
     @Specialization
-    public void serialize(final SFarReference o, final SnapshotBuffer sb) {
-      int base = sb.addObject(o, classFact, Integer.BYTES + Long.BYTES);
+    public long serialize(final SFarReference o, final SnapshotHeap sh) {
+      long location = getObjectLocation(o, sh.getSnapshotVersion());
+      if (location != -1) {
+        return location;
+      }
+
+      SnapshotBuffer vb = sh.getBufferObject(Long.BYTES + Long.BYTES);
+      int base =
+          vb.addObject(o, SFarReference.getFarRefClass(), Long.BYTES + Long.BYTES);
       TracingActor other = (TracingActor) o.getActor();
-      sb.putIntAt(base, other.getActorId());
+      vb.putLongAt(base, other.getId());
 
       // writing the reference is done through this method.
       // actual writing may happen at a later point in time if the object wasn't serialized
-      // yetD
-      other.getSnapshotRecord().farReference(o.getValue(), sb, base + Integer.BYTES);
+      // yet
+      other.farReference((SAbstractObject) o.getValue(), vb, base + Long.BYTES);
+      return vb.calculateReferenceB(base);
     }
 
     @Override
     public Object deserialize(final DeserializationBuffer sb) {
-      TracingActor other = (TracingActor) SnapshotBackend.lookupActor(sb.getInt());
-      DeserializationBuffer otherDB = other.getDeserializationBuffer();
+      long actorId = sb.getLong();
+      TracingActor other = (TracingActor) SnapshotBackend.lookupActor(actorId);
+      if (other == null) {
+        // no messages recorded for this actor, need to create it here.
+        other = ReplayActor.getActorWithId(actorId);
+      }
 
-      Object value = otherDB.getReference();
+      TracingActor current = SnapshotBackend.getCurrentActor();
+      SnapshotParser.setCurrentActor((ReplayActor) other);
+      Object value = sb.getReference();
+      SnapshotParser.setCurrentActor((ReplayActor) current);
+
       SFarReference result = new SFarReference(other, value);
 
       if (DeserializationBuffer.needsFixup(value)) {
-        otherDB.installFixup(new FarRefFixupInformation(result));
+        sb.installFixup(new FarRefFixupInformation(result));
       }
 
       return result;
@@ -290,10 +403,11 @@ public abstract class PrimitiveSerializationNodes {
         // This may be an alternative to making final fields non-final.
         // Only replay executions would be affected by this.
         try {
-          Field field = SFarReference.class.getField("value");
+          Field field = SFarReference.class.getDeclaredField("value");
           Field modifiersField = Field.class.getDeclaredField("modifiers");
           modifiersField.setAccessible(true);
           modifiersField.setInt(field, field.getModifiers() & ~Modifier.FINAL);
+          field.setAccessible(true);
           field.set(ref, o);
         } catch (Exception e) {
           throw new RuntimeException(e);

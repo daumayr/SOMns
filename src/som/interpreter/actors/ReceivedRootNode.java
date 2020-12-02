@@ -11,10 +11,14 @@ import com.oracle.truffle.api.source.SourceSection;
 import som.VM;
 import som.interpreter.SArguments;
 import som.interpreter.SomLanguage;
+import som.interpreter.actors.Actor.ActorProcessingThread;
 import som.interpreter.actors.EventualMessage.PromiseMessage;
 import som.interpreter.actors.SPromise.SResolver;
+import som.primitives.ObjectPrims.ClassPrim;
+import som.primitives.ObjectPrimsFactory.ClassPrimFactory;
 import som.interpreter.actors.SPromise.STracingPromise;
 import som.vm.VmSettings;
+import som.vmobjects.SSymbol;
 import tools.concurrency.KomposTrace;
 import tools.concurrency.TracingActors.TracingActor;
 import tools.debugger.WebDebugger;
@@ -22,6 +26,8 @@ import tools.debugger.entities.DynamicScopeType;
 import tools.dym.DynamicMetrics;
 import tools.replay.TraceRecord;
 import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
+import tools.snapshot.SnapshotBackend;
+import tools.snapshot.SnapshotHeap;
 import tools.snapshot.nodes.MessageSerializationNode;
 import tools.snapshot.nodes.MessageSerializationNodeFactory;
 
@@ -35,12 +41,15 @@ public abstract class ReceivedRootNode extends RootNode {
   @Child protected RecordOneEvent           promiseMessageTracer;
   @Child protected MessageSerializationNode serializer;
 
+  @Child protected ClassPrim classPrim;
+
   private final VM            vm;
   protected final WebDebugger dbg;
   private final SourceSection sourceSection;
 
   protected ReceivedRootNode(final SomLanguage language,
-      final SourceSection sourceSection, final FrameDescriptor frameDescriptor) {
+      final SourceSection sourceSection, final FrameDescriptor frameDescriptor,
+      final SSymbol selector) {
     super(language, frameDescriptor);
     assert sourceSection != null;
     this.vm = language.getVM();
@@ -51,9 +60,11 @@ public abstract class ReceivedRootNode extends RootNode {
     }
     this.sourceSection = sourceSection;
     if (VmSettings.SNAPSHOTS_ENABLED) {
-      serializer = MessageSerializationNodeFactory.create();
+      serializer = MessageSerializationNodeFactory.create(selector);
+      classPrim = ClassPrimFactory.create(null);
     } else {
       serializer = null;
+      classPrim = null;
     }
 
     if (VmSettings.UNIFORM_TRACING) {
@@ -70,6 +81,33 @@ public abstract class ReceivedRootNode extends RootNode {
   @Override
   public final Object execute(final VirtualFrame frame) {
     EventualMessage msg = (EventualMessage) SArguments.rcvr(frame);
+
+    // Output.println(
+    // msg.getTarget().getId() + " PROCESSING " + msg + " at " + msg.getMessageId());
+
+    ActorProcessingThread currentThread = (ActorProcessingThread) Thread.currentThread();
+
+    if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.TEST_SNAPSHOTS && !VmSettings.REPLAY) {
+      SnapshotHeap sh = currentThread.getSnapshotHeap();
+
+      TracingActor owner = (TracingActor) currentThread.getActivity();
+
+      if (VmSettings.UNIFORM_TRACING
+          && owner.snapshotPhase != sh.getSnapshotVersion()) {
+        owner.snapshotPhase = sh.getSnapshotVersion();
+        SnapshotBackend.registerActorVersion(owner.getId(), owner.msgCnt);
+      }
+
+      if (sh.needsToBeSnapshot(msg.getSnapshotPhase())) {
+        long location = serializer.execute(msg, sh);
+        currentThread.wasCaptured = true;
+        sh.getOwner().addMessageLocation(owner.getId(), location);
+      } else {
+        currentThread.wasCaptured = false;
+      }
+      ((TracingActor) currentThread.getActivity()).msgCnt++;
+
+    }
 
     boolean haltOnResolver;
     boolean haltOnResolution;
@@ -103,6 +141,21 @@ public abstract class ReceivedRootNode extends RootNode {
     try {
       return executeBody(frame, msg, haltOnResolver, haltOnResolution);
     } finally {
+      // this has to be after the msgTracing, as otherwise we will expect messages we shoudln't
+      // expect.
+      // also the getSnapshotbuffer is necessary as it will be a new one.
+      if (VmSettings.SNAPSHOTS_ENABLED) {
+        if (msg.getResolver() != null
+            && currentThread.getSnapshotId() != SnapshotBackend.getSnapshotVersion()) {
+          // Snapshot was trigged while executing this message
+          // we need to serialize the promise and mark it.
+          SnapshotHeap sh = currentThread.getSnapshotHeap();
+          SResolver resolver = msg.getResolver();
+
+          SnapshotBackend.registerLostResolution(resolver, sh);
+        }
+      }
+
       if (VmSettings.KOMPOS_TRACING) {
         KomposTrace.scopeEnd(DynamicScopeType.TURN);
       }

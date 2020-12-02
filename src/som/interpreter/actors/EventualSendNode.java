@@ -39,6 +39,7 @@ import som.vmobjects.SSymbol;
 import tools.concurrency.KomposTrace;
 import tools.concurrency.Tags.EventualMessageSend;
 import tools.concurrency.Tags.ExpressionBreakpoint;
+import tools.concurrency.TracingActivityThread;
 import tools.debugger.entities.BreakpointType;
 import tools.debugger.entities.SendOp;
 import tools.debugger.nodes.AbstractBreakpointNode;
@@ -219,7 +220,9 @@ public class EventualSendNode extends ExprWithTagsNode {
 
       if (VmSettings.SENDER_SIDE_REPLAY) {
         ReplayRecord npr = owner.getNextReplayEvent();
-        assert npr.type == TraceRecord.MESSAGE;
+        assert npr.type == TraceRecord.MESSAGE : "expected MESSAGE, but was " + npr.type
+            + " in actor " + TracingActivityThread.currentThread().getActivity().getId()
+            + "    " + EventualMessage.getCurrentExecutingMessage();
         msg.setReplayVersion(npr.eventNo);
       }
 
@@ -304,7 +307,7 @@ public class EventualSendNode extends ExprWithTagsNode {
 
       if (VmSettings.SENDER_SIDE_REPLAY) {
         ReplayRecord npr = current.getNextReplayEvent();
-        assert npr.type == TraceRecord.MESSAGE;
+        assert npr.type == TraceRecord.MESSAGE : "expecting Message, was " + npr.type;
         msg.setReplayVersion(npr.eventNo);
       }
 
@@ -358,7 +361,7 @@ public class EventualSendNode extends ExprWithTagsNode {
         // that use actor.send() to directly insert messages to the mailbox,
         // the following steps need to be performed first.
         ReplayRecord npr = current.getNextReplayEvent();
-        assert npr.type == TraceRecord.MESSAGE;
+        assert npr.type == TraceRecord.MESSAGE : "was " + npr.type + " on " + current.getId();
         msg.setReplayVersion(npr.eventNo);
       }
 

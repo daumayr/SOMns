@@ -3,6 +3,7 @@ package som.primitives;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.net.URI;
@@ -59,6 +60,7 @@ import som.vm.constants.Nil;
 import som.vmobjects.SArray;
 import som.vmobjects.SArray.SImmutableArray;
 import som.vmobjects.SClass;
+import som.vmobjects.SObject;
 import som.vmobjects.SObjectWithClass;
 import som.vmobjects.SSymbol;
 import tools.concurrency.TracingActors.TracingActor;
@@ -68,14 +70,15 @@ import tools.replay.actors.UniformExecutionTrace;
 import tools.replay.nodes.TraceContextNode;
 import tools.replay.nodes.TraceContextNodeGen;
 import tools.snapshot.SnapshotBackend;
-import tools.snapshot.SnapshotBuffer;
-import tools.snapshot.deserialization.DeserializationBuffer;
+import tools.snapshot.SnapshotHeap;
+import tools.snapshot.nodes.AbstractSerializationNode;
+import tools.snapshot.nodes.ObjectSerializationNodesFactory;
 
 
 public final class SystemPrims {
 
   /** File extension for SOMns extensions with Java code. */
-  private static final String EXTENSION_EXT = ".jar";
+  public static final String EXTENSION_EXT = ".jar";
 
   @CompilationFinal public static SObjectWithClass SystemModule;
 
@@ -404,7 +407,7 @@ public final class SystemPrims {
 
     @Specialization
     public final Object doSObject(final Object receiver) {
-      if (VmSettings.SNAPSHOTS_ENABLED) {
+      if (VmSettings.SNAPSHOTS_ENABLED  && !VmSettings.SNAPSHOT_REPLAY) {
         SnapshotBackend.startSnapshot();
       }
       return Nil.nilObject;
@@ -420,23 +423,58 @@ public final class SystemPrims {
       if (VmSettings.SNAPSHOTS_ENABLED) {
         ActorProcessingThread atp =
             (ActorProcessingThread) ActorProcessingThread.currentThread();
-        TracingActor ta = (TracingActor) EventualMessage.getActorCurrentMessageIsExecutionOn();
-        SnapshotBuffer sb = new SnapshotBuffer(atp);
-        ta.replaceSnapshotRecord();
+        SnapshotHeap sh = new SnapshotHeap(atp);
 
-        if (!sb.getRecord().containsObject(receiver)) {
-          SClass clazz = Types.getClassOf(receiver);
-          clazz.serialize(receiver, sb);
-          DeserializationBuffer bb = sb.getBuffer();
-
-          long ref = sb.getRecord().getObjectPointer(receiver);
-
-          Object o = bb.deserialize(ref);
-          assert Types.getClassOf(o) == clazz;
-          return o;
-        }
+        SClass clazz = Types.getClassOf(receiver);
+        long ref = clazz.serialize(receiver, sh);
+        // DeserializationBuffer bb = sb.getBuffer();
+        // Object o = bb.deserialize(ref);
+        // assert Types.getClassOf(o) == clazz;
+        // return o;
       }
       return Nil.nilObject;
+    }
+  }
+
+  @GenerateNodeFactory
+  @Primitive(primitive = "serialize:")
+  public abstract static class SerializePrim extends UnaryBasicOperation {
+
+    @Child AbstractSerializationNode serialize;
+
+    @Specialization
+    public final Object doSObject(final SObject receiver) {
+      if (serialize == null) {
+        serialize =
+            insert(ObjectSerializationNodesFactory.SObjectSerializationNodeFactory.create(
+                receiver.getFactory(), 0));
+      }
+      if (VmSettings.SNAPSHOTS_ENABLED) {
+        ActorProcessingThread atp =
+            (ActorProcessingThread) ActorProcessingThread.currentThread();
+        atp.incrementSnapshotForSerialization();
+        SnapshotHeap sh = new SnapshotHeap(atp);
+        String string;
+        // SClass clazz = Types.getClassOf(receiver);
+
+        serialize.execute(receiver, sh);
+        // clazz.serialize(receiver, sb);
+        writeBuffer(sh);
+        return receiver;
+      }
+      return Nil.nilObject;
+    }
+  }
+
+  @TruffleBoundary
+  private static void writeBuffer(final SnapshotHeap sh) {
+    try (FileOutputStream fos = new FileOutputStream(new File("ACDC.serial"))) {
+      sh.writeToChannel(fos);
+      fos.flush();
+    } catch (FileNotFoundException e) {
+      e.printStackTrace();
+    } catch (IOException e) {
+      e.printStackTrace();
     }
   }
 

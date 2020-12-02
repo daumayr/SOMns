@@ -42,6 +42,7 @@ public abstract class AbstractGenericDispatchNode extends AbstractDispatchNode {
     if (method != null) {
       return method.invoke(call, arguments);
     } else {
+      CompilerDirectives.transferToInterpreter();
       return performDnu(arguments, rcvr, rcvrClass, selector, call);
     }
   }

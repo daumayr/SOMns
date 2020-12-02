@@ -16,6 +16,9 @@ public abstract class SAbstractObject implements SomInteropObject {
 
   public abstract boolean isValue();
 
+  private long snapshotLocation = -1;
+  private byte snapshotVersion;
+
   @Override
   public String toString() {
     CompilerAsserts.neverPartOfCompilation();
@@ -29,5 +32,18 @@ public abstract class SAbstractObject implements SomInteropObject {
   @ExportMessage
   public final boolean isNull() {
     return this == Nil.nilObject;
+  }
+
+  public long getSnapshotLocation() {
+    return snapshotLocation;
+  }
+
+  public byte getSnapshotVersion() {
+    return snapshotVersion;
+  }
+
+  public void updateSnapshotLocation(final long snapshotLocation, final byte version) {
+    this.snapshotLocation = snapshotLocation;
+    this.snapshotVersion = version;
   }
 }

@@ -83,7 +83,7 @@ public abstract class SchedulePromiseHandlerNode extends Node {
     wrapArguments(msg, finalTarget, argWrapper);
 
     msg.target = finalTarget; // for sends to far references, we need to adjust the target
-    msg.finalSender = current;
+    //msg.finalSender = current;
 
     if (VmSettings.SENDER_SIDE_REPLAY) {
       ReplayRecord npr = current.getNextReplayEvent();

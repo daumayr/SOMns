@@ -13,6 +13,7 @@ import som.vm.VmSettings;
 import tools.concurrency.TracingBackend;
 import tools.parser.KomposTraceParser;
 import tools.snapshot.SnapshotBackend;
+import tools.snapshot.deserialization.SnapshotParser;
 
 
 public final class Launcher {
@@ -34,6 +35,10 @@ public final class Launcher {
   public static void main(final String[] args) {
     StorageAccessor.initAccessors();
 
+    if (VmSettings.SNAPSHOT_REPLAY) {
+      SnapshotParser.preparations();
+    }
+
     Builder builder = createContextBuilder(args);
     Context context = builder.build();
 
@@ -42,8 +47,12 @@ public final class Launcher {
       Value result = context.eval(START);
       exitCode = result.as(Integer.class);
     } finally {
+      if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.TEST_SNAPSHOTS && !VmSettings.REPLAY) {
+        SnapshotBackend.ensureLastSnapshotPersisted();
+      }
+
       context.eval(SHUTDOWN);
-      context.close();
+      context.close(false);
       finalizeExecution(exitCode);
     }
 
@@ -53,9 +62,6 @@ public final class Launcher {
 
   private static void finalizeExecution(final int exitCode) {
     TracingBackend.waitForTrace();
-    if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.TEST_SNAPSHOTS) {
-      SnapshotBackend.writeSnapshot();
-    }
 
     // Note: Kompos Trace is parsed right after writing it
     // to produce the list of messages on the erroneous path.

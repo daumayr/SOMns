@@ -1,5 +1,6 @@
 package som.compiler;
 
+import java.net.URI;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -63,8 +64,9 @@ import som.vmobjects.SObject.SMutableObject;
 import som.vmobjects.SObjectWithClass;
 import som.vmobjects.SSymbol;
 import tools.snapshot.nodes.AbstractSerializationNode;
-import tools.snapshot.nodes.ObjectSerializationNodesFactory.UninitializedObjectSerializationNodeFactory;
+import tools.snapshot.nodes.ObjectSerializationNodes.ObjectSerializationNode;
 import tools.snapshot.nodes.PrimitiveSerializationNodesFactory.ClassSerializationNodeFactory;
+
 
 
 /**
@@ -211,23 +213,30 @@ public final class MixinDefinition implements SomInteropObject {
       final Object superclassAndMixins, final boolean isTheValueClass,
       final boolean isTheTransferObjectClass, final boolean isTheArrayClass) {
     initializeClass(result, superclassAndMixins, isTheValueClass, isTheTransferObjectClass,
-        isTheArrayClass, UninitializedObjectSerializationNodeFactory.getInstance());
+        isTheArrayClass, null, null);
   }
 
   public void initializeClass(final SClass result,
       final Object superclassAndMixins,
-      final NodeFactory<? extends AbstractSerializationNode> serializerFactory) {
-    initializeClass(result, superclassAndMixins, false, false, false, serializerFactory);
+      final NodeFactory<? extends AbstractSerializationNode> serializerFactory,
+      final AbstractSerializationNode deserializer) {
+    initializeClass(result, superclassAndMixins, false, false, false, serializerFactory,
+        deserializer);
   }
 
   public void initializeClass(final SClass result,
       final Object superclassAndMixins, final boolean isTheValueClass,
       final boolean isTheTransferObjectClass, final boolean isTheArrayClass,
-      final NodeFactory<? extends AbstractSerializationNode> serializerFactory) {
+      final NodeFactory<? extends AbstractSerializationNode> serializerFactory,
+      final AbstractSerializationNode deserializer) {
     VM.callerNeedsToBeOptimized(
         "This is supposed to result in a cacheable object, and thus is only the fallback case.");
     ClassFactory factory = createClassFactory(superclassAndMixins,
-        isTheValueClass, isTheTransferObjectClass, isTheArrayClass, serializerFactory);
+        isTheValueClass, isTheTransferObjectClass, isTheArrayClass);
+    if (serializerFactory != null) {
+      factory.customizeSerialization(serializerFactory, deserializer);
+    }
+
     if (result.getSOMClass() != null) {
       factory.getClassClassFactory().initializeClass(result.getSOMClass());
     }
@@ -371,13 +380,22 @@ public final class MixinDefinition implements SomInteropObject {
         new SClass[] {Classes.classClass}, true,
         // TODO: not passing a ClassFactory of the meta class here is incorrect,
         // might not matter in practice
-        null, ClassSerializationNodeFactory.getInstance());
+        null);
 
     ClassFactory classFactory = new ClassFactory(name, this,
         instanceSlots, dispatchables, instancesAreValues,
         instancesAreTransferObjects, instancesAreArrays,
         mixins, hasOnlyImmutableFields,
-        classClassFactory, serializerFactory);
+        classClassFactory);
+
+    if (VmSettings.SNAPSHOTS_ENABLED) {
+      classClassFactory.customizeSerialization(
+          ClassSerializationNodeFactory.getInstance(),
+          ClassSerializationNodeFactory.create());
+      classFactory.customizeSerialization(
+          ObjectSerializationNode.getNodeFactory(classFactory),
+          ObjectSerializationNode.create(classFactory, 0));
+    }
 
     cache.add(classFactory);
 
@@ -541,8 +559,7 @@ public final class MixinDefinition implements SomInteropObject {
 
   public SClass instantiateClass(final SObjectWithClass outer,
       final Object superclassAndMixins) {
-    ClassFactory factory = createClassFactory(superclassAndMixins,
-        false, false, false, UninitializedObjectSerializationNodeFactory.getInstance());
+    ClassFactory factory = createClassFactory(superclassAndMixins, false, false, false);
     return ClassInstantiationNode.instantiate(outer, factory, notAValue,
         cannotBeValues);
   }
@@ -896,7 +913,13 @@ public final class MixinDefinition implements SomInteropObject {
         identifier =
             Symbols.symbolFor(outer.getIdentifier().getString() + "." + this.name.getString());
       } else if (this.isModule && this.sourceSection != null) {
-        Path absolute = Paths.get(this.sourceSection.getSource().getURI());
+        URI uri = this.sourceSection.getSource().getURI();
+        Path absolute;
+        if (uri.getScheme().equals("truffle")) {
+          absolute = Paths.get(uri.getSchemeSpecificPart().split("/", 2)[1]);
+        } else {
+          absolute = Paths.get(this.sourceSection.getSource().getURI());
+        }
         Path relative =
             Paths.get(VmSettings.BASE_DIRECTORY).toAbsolutePath().relativize(absolute);
         identifier = Symbols.symbolFor(relative.toString() + ":" + this.name.getString());

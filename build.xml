@@ -521,6 +521,15 @@
       <travis target="snapshot-tests" />
     </target>
 
+    <target name="snapshot-replay-tests" depends="">
+      <exec executable="tests/snapshot-replay/test.sh" failonerror="true">
+          <arg value="1" />
+      </exec>
+      <exec executable="tests/snapshot-replay/test.sh" failonerror="true">
+          <arg value="2" />
+      </exec>
+    </target>
+
     <target name="core-tests" depends="unit-tests,som-tests,dynamic-metrics-tests,superinstructions-tests">
     </target>
 

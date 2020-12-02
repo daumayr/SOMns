@@ -1,9 +1,12 @@
 package som.interpreter.objectstorage;
 
+import java.util.concurrent.atomic.AtomicInteger;
+
 import org.graalvm.collections.EconomicMap;
 import org.graalvm.collections.EconomicSet;
 
 import com.oracle.truffle.api.CompilerAsserts;
+import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
 import com.oracle.truffle.api.dsl.NodeFactory;
 
 import som.VM;
@@ -14,6 +17,9 @@ import som.interpreter.nodes.dispatch.Dispatchable;
 import som.vm.VmSettings;
 import som.vmobjects.SClass;
 import som.vmobjects.SSymbol;
+import tools.snapshot.SnapshotBuffer;
+import tools.snapshot.SnapshotHeap;
+import tools.snapshot.deserialization.DeserializationBuffer;
 import tools.snapshot.nodes.AbstractSerializationNode;
 import tools.snapshot.nodes.SerializerRootNode;
 
@@ -61,7 +67,10 @@ public final class ClassFactory {
 
   private final ClassFactory classClassFactory;
 
-  protected final SerializerRootNode serializationRoot;
+  protected final AtomicInteger identityGen;
+
+  @CompilationFinal private NodeFactory<? extends AbstractSerializationNode> serializerFactory;
+  @CompilationFinal private SerializerRootNode                               serializerRoot;
 
   public ClassFactory(final SSymbol name, final MixinDefinition mixinDef,
       final EconomicSet<SlotDefinition> instanceSlots,
@@ -71,8 +80,7 @@ public final class ClassFactory {
       final boolean isArray,
       final SClass[] superclassAndMixins,
       final boolean hasOnlyImmutableFields,
-      final ClassFactory classClassFactory,
-      final NodeFactory<? extends AbstractSerializationNode> serializerFactory) {
+      final ClassFactory classClassFactory) {
     assert instanceSlots == null || instanceSlots.size() > 0;
 
     this.className = name;
@@ -88,10 +96,9 @@ public final class ClassFactory {
     this.superclassAndMixins = superclassAndMixins;
 
     if (VmSettings.SNAPSHOTS_ENABLED) {
-      this.serializationRoot =
-          new SerializerRootNode(serializerFactory.createNode(this));
+      this.identityGen = new AtomicInteger(0);
     } else {
-      this.serializationRoot = null;
+      this.identityGen = null;
     }
 
     VM.callerNeedsToBeOptimized(
@@ -120,6 +127,9 @@ public final class ClassFactory {
 
   public ObjectLayout getInstanceLayout() {
     VM.callerNeedsToBeOptimized("Should not be called on fast path");
+    if (instanceLayout != null) {
+      assert instanceLayout.isValid();
+    }
     return instanceLayout;
   }
 
@@ -135,12 +145,35 @@ public final class ClassFactory {
     return superclassAndMixins;
   }
 
-  public AbstractSerializationNode getSerializer() {
-    return serializationRoot.getSerializer();
-  }
-
   public MixinDefinition getMixinDefinition() {
     return mixinDef;
+  }
+
+  public NodeFactory<? extends AbstractSerializationNode> getSerializerFactory() {
+    // serializerFactory can be null for Classes.messageClass
+    return serializerFactory;
+  }
+
+  public void customizeSerialization(
+      final NodeFactory<? extends AbstractSerializationNode> factory,
+      final AbstractSerializationNode deserializer) {
+    serializerFactory = factory;
+
+    // this is needed since the deserialize is currently
+    // still used for serialization, and some classes do
+    // rewriting with `replace()`
+    serializerRoot = new SerializerRootNode(deserializer);
+  }
+
+  public Object deserialize(final DeserializationBuffer bb, final SClass clazz) {
+    return serializerRoot.getSerializer().deserialize(bb, clazz);
+  }
+
+  public long serialize(final Object o, final SnapshotHeap snapshotHeap) {
+    VM.callerNeedsToBeOptimized("This serialize method should not be used from PEed code.");
+    // TODO: we are using the deserialize node here. The deserializer and serializer should be
+    // split. This would also allow us to optimize deserialization.
+    return serializerRoot.getSerializer().execute(o, snapshotHeap);
   }
 
   /**
@@ -199,5 +232,12 @@ public final class ClassFactory {
 
   public SSymbol getIdentifier() {
     return mixinDef.getIdentifier();
+  }
+
+  public int createIdentity() {
+    if (mixinDef == null) {
+      return (className.getSymbolId() << 16) | identityGen.getAndIncrement();
+    }
+    return (mixinDef.getIdentifier().getSymbolId() << 16) | identityGen.getAndIncrement();
   }
 }

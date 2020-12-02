@@ -92,6 +92,11 @@ public abstract class AbstractPromiseResolutionNode extends QuaternaryExpression
   public SResolver chainedPromise(final VirtualFrame frame,
       final SResolver resolver, final SPromise promiseValue,
       final boolean haltOnResolver, final boolean haltOnResolution) {
+
+    if (VmSettings.SNAPSHOT_REPLAY && promiseValue.hasChainedPromise(resolver.getPromise())) {
+      return resolver;
+    }
+
     chainPromise(resolver, promiseValue, haltOnResolver, haltOnResolution);
     return resolver;
   }
@@ -141,6 +146,8 @@ public abstract class AbstractPromiseResolutionNode extends QuaternaryExpression
 
           if (VmSettings.SENDER_SIDE_TRACING) {
             tracePromiseChaining.record(((STracingPromise) promiseValue).version);
+            ((STracingPromise) promiseToBeResolved).setResolvingActorForSnapshot(
+                ((STracingPromise) promiseValue).version);
             ((STracingPromise) promiseValue).version++;
           }
           promiseValue.addChainedPromise(promiseToBeResolved);

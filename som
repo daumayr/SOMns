@@ -103,6 +103,12 @@ tools.add_argument('-sam', '--snapshot-all-messages', help='snapshot all message
                     dest='actor_snapshots_all', action='store_true', default=False)
 tools.add_argument('-tas', '--test-snapshots', help='actor tracing with snapshots',
                     dest='test_actor_snapshots', action='store_true', default=False)
+tools.add_argument('-asr', '--actor-snapshots-restore', help='select a snapshotbuffer to be restored (number)',
+                    dest='snapshot_restore', default=1)
+tools.add_argument('-asf', '--actor-snapshots-frequency', help='select a 1 out of n iterations is snapshot',
+                    dest='snapshot_frequency', default=1)
+tools.add_argument('-sind', '--snapshot-inlining-depth', help='set the inlining limit of snapshot serialization',
+                    dest='snapshot_inlining_depth', default=8)
 tools.add_argument('--coverage', help='determine SOMns code coverage and store in given file',
                    dest='coverage', default=None)
 tools.add_argument('--java-coverage', help='determine Java code coverage and store in given file',
@@ -379,7 +385,7 @@ if args.buffer_recycling:
     flags += ['-Dsom.bufferRecycling=false']
 if args.buffer_size:
     flags += ['-Dsom.buffSize=%s' % args.buffer_size ]
-if args.buffer_size:
+if args.buffer_delay:
     flags += ['-Dsom.buffDelay=%s' % args.buffer_delay ]
 if args.buffers_per_thread:
     flags += ['-Dsom.buffPerThread=%s' % args.buffers_per_thread ]
@@ -389,6 +395,12 @@ if args.actor_snapshots:
     flags += ['-Dsom.actorSnapshot=true']
 if args.actor_snapshots_all:
     flags += ['-Dsom.actorSnapshotAll=true']
+if args.snapshot_restore:
+    flags += ['-Dsom.actorSnapshotResore=%s' % args.snapshot_restore ]
+if args.snapshot_frequency:
+    flags += ['-Dsom.actorSnapshotFrequency=%s' % args.snapshot_frequency ]
+if args.snapshot_inlining_depth:
+    flags += ['-Dsom.snapshotInliningDepth=%s' % args.snapshot_inlining_depth ]
 
 if (args.truffle_profile or args.web_debugger or
     args.dynamic_metrics or args.coverage or args.si_candidates):

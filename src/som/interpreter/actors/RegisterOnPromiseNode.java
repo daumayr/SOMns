@@ -69,7 +69,12 @@ public abstract class RegisterOnPromiseNode {
           if (npr.type == TraceRecord.PROMISE_MESSAGE) {
             current.getNextReplayEvent();
             msg.messageId = npr.eventNo;
-            ((SReplayPromise) promise).registerOnResolvedReplay(msg);
+            // Output.println("sent promise msg to " + promise +
+            // System.identityHashCode(promise)
+            // + " \n " + " with "
+            // + npr.eventNo);
+            // (new Throwable()).printStackTrace();
+            ((SReplayPromise) promise).registerOnResolvedSnapshot(msg, true);
             return;
           }
         }
@@ -83,7 +88,14 @@ public abstract class RegisterOnPromiseNode {
 
           if (VmSettings.SENDER_SIDE_TRACING) {
             // This is whenResolved
+            // Output.println("sent promise msg to " + promise
+            // + " \n " + EventualMessage.getCurrentExecutingMessage() + " with "
+            // + ((STracingPromise) promise).version);
             promiseMsgSend.record(((STracingPromise) promise).version);
+            if (VmSettings.SNAPSHOTS_ENABLED) {
+              msg.messageId = ((STracingPromise) promise).version;
+            }
+
             ((STracingPromise) promise).version++;
           }
 
@@ -151,7 +163,7 @@ public abstract class RegisterOnPromiseNode {
           msg.messageId = npr.eventNo;
 
           if (npr.type == TraceRecord.PROMISE_MESSAGE) {
-            ((SReplayPromise) promise).registerOnErrorReplay(msg);
+            ((SReplayPromise) promise).registerOnErrorSnapshot(msg, true);
             return;
           }
         }
@@ -161,6 +173,9 @@ public abstract class RegisterOnPromiseNode {
           if (VmSettings.SENDER_SIDE_TRACING) {
             // This is whenResolved
             promiseMsgSend.record(((STracingPromise) promise).version);
+            if (VmSettings.SNAPSHOTS_ENABLED) {
+              msg.messageId = ((STracingPromise) promise).version;
+            }
             ((STracingPromise) promise).version++;
           }
 

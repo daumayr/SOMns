@@ -19,11 +19,14 @@ import som.vm.VmSettings;
 import som.vmobjects.SClass;
 import tools.concurrency.KomposTrace;
 import tools.concurrency.Tags.ExpressionBreakpoint;
+import tools.concurrency.TracingActivityThread;
 import tools.concurrency.TracingActors.TracingActor;
 import tools.debugger.entities.ActivityType;
+import tools.replay.ReplayRecord;
 import tools.dym.Tags.CreateActor;
 import tools.replay.TraceRecord;
 import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
+import tools.snapshot.SnapshotBackend;
 
 
 @GenerateNodeFactory
@@ -47,7 +50,16 @@ public abstract class CreateActorPrim extends BinarySystemOperation {
   @Specialization(guards = "isValue.executeBoolean(frame, argument)")
   public final SFarReference createActor(final VirtualFrame frame, final Object receiver,
       final Object argument) {
-    Actor actor = Actor.createActor(vm);
+    Actor actor;
+    if (VmSettings.SNAPSHOT_REPLAY) {
+      ReplayRecord rr =
+          TracingActivityThread.currentThread().getActivity().getNextReplayEvent();
+      assert rr.type == TraceRecord.ACTIVITY_CREATION;
+      actor = SnapshotBackend.lookupActor(rr.eventNo);
+    } else {
+      actor = Actor.createActor(vm);
+    }
+
     SFarReference ref = new SFarReference(actor, argument);
 
     if (VmSettings.UNIFORM_TRACING) {

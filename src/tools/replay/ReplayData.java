@@ -3,7 +3,9 @@ package tools.replay;
 import java.util.HashMap;
 import java.util.LinkedList;
 
+import som.Output;
 import som.vm.Activity;
+import som.vm.VmSettings;
 import tools.concurrency.TracingActivityThread;
 
 
@@ -53,6 +55,8 @@ public class ReplayData {
     LinkedList<ReplayRecord> replayEvents;
     int                      nextContext = 0;
     boolean                  retrieved   = false;
+    int                      minContext  = Integer.MAX_VALUE;
+
 
     public EntityNode(final long entityId) {
       this.entityId = entityId;
@@ -63,6 +67,8 @@ public class ReplayData {
         subtraces = new HashMap<>();
       }
 
+      assert !retrieved;
+
       // TODO probably can be done more efficiently
       while (subtraces.containsKey(ordering) || ordering < nextContext) {
         ordering += 0xFFFF;
@@ -70,6 +76,13 @@ public class ReplayData {
 
       Subtrace detail = new Subtrace(location);
       subtraces.put(ordering, detail);
+
+      if (VmSettings.SNAPSHOT_REPLAY) {
+        if (minContext > ordering) {
+          minContext = ordering;
+        }
+      }
+
       return detail;
     }
 
@@ -80,6 +93,15 @@ public class ReplayData {
         nextContext++;
         return true;
       } else {
+        Output.println("Context " + nextContext + " not present ");
+        nextContext++;
+        detail = subtraces.get(nextContext);
+        if (detail != null) {
+          parser.processContext(detail, this);
+          nextContext++;
+          return true;
+        }
+
         return false;
       }
     }
@@ -87,11 +109,19 @@ public class ReplayData {
     protected void addReplayEvent(final ReplayRecord mr) {
       if (replayEvents == null) {
         replayEvents = new LinkedList<>();
+        Output.println("returned empty list");
       }
       replayEvents.add(mr);
     }
 
     public LinkedList<ReplayRecord> getReplayEvents() {
+      assert !retrieved : entityId;
+      retrieved = true;
+
+      if (VmSettings.SNAPSHOT_REPLAY) {
+        nextContext = minContext;
+      }
+
       if (replayEvents == null) {
         replayEvents = new LinkedList<>();
       }

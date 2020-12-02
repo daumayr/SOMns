@@ -15,7 +15,10 @@ import com.oracle.truffle.api.nodes.RootNode;
 
 import som.VM;
 import som.interpreter.SomLanguage;
+import som.interpreter.actors.EventualMessage.PromiseMessage;
 import som.interpreter.objectstorage.ObjectTransitionSafepoint;
+import som.primitives.ObjectPrims.ClassPrim;
+import som.primitives.ObjectPrimsFactory.ClassPrimFactory;
 import som.vm.Activity;
 import som.vm.VmSettings;
 import tools.ObjectBuffer;
@@ -32,6 +35,9 @@ import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
 import tools.replay.nodes.TraceContextNode;
 import tools.replay.nodes.TraceContextNodeGen;
 import tools.snapshot.SnapshotBuffer;
+import tools.snapshot.SnapshotBackend;
+import tools.snapshot.SnapshotHeap;
+import tools.snapshot.deserialization.SnapshotParser;
 
 
 /**
@@ -136,6 +142,39 @@ public class Actor implements Activity {
     doSend(msg, pool);
   }
 
+  public synchronized void sendSnapshotMessage(final EventualMessage msg) {
+    if (msg instanceof PromiseMessage) {
+      if (!SnapshotParser.addPMsg(msg)) {
+        // avoid duplicate promise messages
+        return;
+      }
+    }
+
+    if (firstMessage != null) {
+      appendToMailbox(msg);
+    } else {
+      firstMessage = msg;
+    }
+  }
+
+  public synchronized void executeIfNecessarry(final ForkJoinPool actorPool) {
+    if (firstMessage == null) {
+      return;
+    }
+
+    if (!isExecuting) {
+      isExecuting = true;
+      execute(actorPool);
+    }
+  }
+
+  public synchronized void executeForDeferred(final ForkJoinPool actorPool) {
+    if (!isExecuting) {
+      isExecuting = true;
+      execute(actorPool);
+    }
+  }
+
   private void doSend(final EventualMessage msg,
       final ForkJoinPool actorPool) {
     assert msg.getTarget() == this;
@@ -163,9 +202,13 @@ public class Actor implements Activity {
   public static final class ExecutorRootNode extends RootNode {
 
     @Child protected RecordOneEvent recordPromiseChaining;
+    @Child protected ClassPrim      classPrim;
 
     private ExecutorRootNode(final SomLanguage language) {
       super(language);
+      if (VmSettings.SNAPSHOTS_ENABLED) {
+        classPrim = ClassPrimFactory.create(null);
+      }
 
       if (VmSettings.SENDER_SIDE_TRACING) {
         this.recordPromiseChaining = new RecordOneEvent(TraceRecord.PROMISE_CHAINED);
@@ -245,8 +288,31 @@ public class Actor implements Activity {
         KomposTrace.currentActivity(actor);
       }
 
+      if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.SNAPSHOT_REPLAY) {
+        SnapshotHeap sh = t.getSnapshotHeap();
+        TracingActor owner = (TracingActor) actor;
+
+        if (VmSettings.UNIFORM_TRACING
+            && owner.snapshotPhase != sh.getSnapshotVersion()) {
+          owner.snapshotPhase = sh.getSnapshotVersion();
+          SnapshotBackend.registerActorVersion(owner.getId(), owner.msgCnt);
+        }
+
+        ((TracingActor) actor).handleObjectsReferencedFromFarRefs(sh,
+            ((ExecutorRootNode) executorRoot.getRootNode()).classPrim);
+        if (((TracingActor) actor).isReportDeferredDone()) {
+          SnapshotBackend.doneWithDeferred((TracingActor) actor);
+        }
+      }
+
       while (getCurrentMessagesOrCompleteExecution()) {
         processCurrentMessages(t, dbg);
+        // check if a bubble came up
+        if (SnapshotBackend.bubbleExecuted
+            && t.bubbleVersion != SnapshotBackend.getSnapshotVersion()) {
+          t.bubbleVersion = SnapshotBackend.getSnapshotVersion();
+          SnapshotBackend.threadClean();
+        }
       }
     }
 
@@ -254,18 +320,10 @@ public class Actor implements Activity {
         final WebDebugger dbg) {
       assert size > 0;
 
-      if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.TEST_SNAPSHOTS) {
-        SnapshotBuffer sb = currentThread.getSnapshotBuffer();
-        sb.getRecord().handleTodos(sb);
-        firstMessage.serialize(sb);
-      }
       execute(firstMessage, currentThread, dbg);
 
       if (size > 1) {
         for (EventualMessage msg : mailboxExtension) {
-          if (VmSettings.SNAPSHOTS_ENABLED && !VmSettings.TEST_SNAPSHOTS) {
-            msg.serialize(currentThread.getSnapshotBuffer());
-          }
           execute(msg, currentThread, dbg);
         }
       }
@@ -309,6 +367,10 @@ public class Actor implements Activity {
 
       return true;
     }
+
+    public TraceContextNode getActorContextNode() {
+      return tracer;
+    }
   }
 
   @TruffleBoundary
@@ -343,6 +405,7 @@ public class Actor implements Activity {
     public EventualMessage currentMessage;
 
     protected Actor currentlyExecutingActor;
+    public byte     bubbleVersion;
 
     protected ActorProcessingThread(final ForkJoinPool pool, final VM vm) {
       super(pool, vm);
@@ -358,6 +421,10 @@ public class Actor implements Activity {
 
     public Actor getCurrentActor() {
       return currentlyExecutingActor;
+    }
+
+    public void setCurrentActorForSnapshot(final Actor current) {
+      this.currentlyExecutingActor = current;
     }
   }
 
