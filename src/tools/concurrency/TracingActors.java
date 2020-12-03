@@ -289,7 +289,6 @@ public class TracingActors {
 
   public static final class ReplayActor extends TracingActor
       implements PassiveEntityWithEvents {
-    protected int                                  children;
     private final LinkedList<ReplayRecord>         replayEvents;
     protected final PriorityQueue<EventualMessage> orderedMessages =
         new PriorityQueue<>(new MessageComparator());

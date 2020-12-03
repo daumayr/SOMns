@@ -304,7 +304,7 @@ public final class TraceParser implements Closeable {
           }
           ctx.metrics[type]++;
           ctx.ordering = Short.toUnsignedInt(b.getShort());
-          long currentEntityId = getId(b, Long.BYTES);
+          long currentEntityId = b.getLong();
 
           ctx.currentEntity = getOrCreateEntityEntry(recordType, currentEntityId);
           assert ctx.currentEntity != null;
@@ -317,7 +317,7 @@ public final class TraceParser implements Closeable {
         } else {
           if (ctx.once) {
             ctx.ordering = Short.toUnsignedInt(b.getShort());
-            getId(b, Long.BYTES);
+            b.getLong();
             ctx.once = false;
           } else {
             // When we are not scanning for contexts, this means that the context we wanted
@@ -447,22 +447,5 @@ public final class TraceParser implements Closeable {
 
   protected void processContext(final Subtrace location, final EntityNode context) {
     parseTrace(false, location, context, location.snapshot);
-  }
-
-  private static long getId(final ByteBuffer b, final int numbytes) {
-    switch (numbytes) {
-      case 1:
-        return 0 | b.get();
-      case Short.BYTES:
-        return 0 | b.getShort();
-      case 3:
-        return (b.get() << 16) | b.getShort();
-      case Integer.BYTES:
-        return b.getInt();
-      case Long.BYTES:
-        return b.getLong();
-    }
-    assert false : "should not happen";
-    return 0;
   }
 }

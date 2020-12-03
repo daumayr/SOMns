@@ -267,12 +267,14 @@ public class SPromise extends SObjectWithClass {
       numRegisteredWhenResolved.incrementAndGet();
     }
 
-    STracingPromise sp = (STracingPromise) this;
-    // TODO: implement fix
-    assert (sp.getSnapshotLocation() == -1
-        || sp.getSnapshotVersion() != SnapshotBackend.getSnapshotVersion())
-        || SnapshotBackend.getSnapshotVersion() == TracingActivityThread.currentThread()
-                                                                        .getSnapshotId();
+    if (VmSettings.SNAPSHOTS_ENABLED) {
+      STracingPromise sp = (STracingPromise) this;
+      // TODO: implement fix
+      assert (sp.getSnapshotLocation() == -1
+          || sp.getSnapshotVersion() != SnapshotBackend.getSnapshotVersion())
+          || SnapshotBackend.getSnapshotVersion() == TracingActivityThread.currentThread()
+                                                                          .getSnapshotId();
+    }
 
     if (whenResolved == null) {
       whenResolved = msg;

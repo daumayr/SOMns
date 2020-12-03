@@ -68,7 +68,6 @@ import tools.snapshot.nodes.ObjectSerializationNodes.ObjectSerializationNode;
 import tools.snapshot.nodes.PrimitiveSerializationNodesFactory.ClassSerializationNodeFactory;
 
 
-
 /**
  * Produced by a {@link MixinBuilder}, contains all static information on a
  * mixin that is in the source. Is used to instantiate a {@link ClassFactory}
@@ -324,8 +323,7 @@ public final class MixinDefinition implements SomInteropObject {
 
   public ClassFactory createClassFactory(final Object superclassAndMixins,
       final boolean isTheValueClass, final boolean isTheTransferObjectClass,
-      final boolean isTheArrayClass,
-      final NodeFactory<? extends AbstractSerializationNode> serializerFactory) {
+      final boolean isTheArrayClass) {
     if (TruffleOptions.AOT) {
       CompilerDirectives.transferToInterpreter();
     }
